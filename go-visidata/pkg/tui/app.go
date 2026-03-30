@@ -125,6 +125,11 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 			a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortAsc)
 		case ']':
 			a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortDesc)
+		case 'f':
+			a.pushSheet(a.Sheet.FreezeSheet())
+			a.Sheet.Status = fmt.Sprintf("freeze %s", a.Sheet.Name)
+		case 'D':
+			a.openDedupeSheet()
 		case 'n':
 			a.Sheet.NextMatch(1)
 		case 'N':
@@ -242,6 +247,16 @@ func (a *App) openFrequencySheet() {
 	}
 	a.pushSheet(sh)
 	a.Sheet.Status = fmt.Sprintf("frequency %s", a.Sheet.Name)
+}
+
+func (a *App) openDedupeSheet() {
+	sh, err := a.Sheet.DedupeSheet(a.Sheet.CursorCol)
+	if err != nil {
+		a.Sheet.Status = fmt.Sprintf("dedupe failed: %v", err)
+		return
+	}
+	a.pushSheet(sh)
+	a.Sheet.Status = fmt.Sprintf("dedupe %s", a.Sheet.Name)
 }
 
 func (a *App) buildSheetsSheet() *sheet.Sheet {

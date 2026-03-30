@@ -7,6 +7,70 @@ import (
 	"strings"
 )
 
+func (s *Sheet) FreezeSheet() *Sheet {
+	visibleCols := s.VisibleColumnIndices()
+	headers := make([]string, 0, len(visibleCols))
+	for _, columnIndex := range visibleCols {
+		headers = append(headers, s.Columns[columnIndex].Name)
+	}
+
+	sh := New(fmt.Sprintf("freeze:%s", s.Name), s.Source, headers)
+	for i, columnIndex := range visibleCols {
+		sh.Columns[i].Kind = s.Columns[columnIndex].EffectiveKind()
+		sh.Columns[i].Width = s.Columns[columnIndex].Width
+	}
+	for _, row := range s.Rows {
+		sh.AddRawRow(visibleRowValues(row, visibleCols))
+	}
+
+	return sh
+}
+
+func (s *Sheet) DedupeSheet(columnIndex int) (*Sheet, error) {
+	if columnIndex < 0 || columnIndex >= len(s.Columns) {
+		return nil, fmt.Errorf("column %d out of range", columnIndex)
+	}
+
+	visibleCols := s.VisibleColumnIndices()
+	headers := make([]string, 0, len(visibleCols)+1)
+	for _, visibleIndex := range visibleCols {
+		headers = append(headers, s.Columns[visibleIndex].Name)
+	}
+	headers = append(headers, "duplicate_count")
+
+	type dedupeEntry struct {
+		rowIndex int
+		count    int
+	}
+
+	entries := make(map[string]*dedupeEntry)
+	order := make([]string, 0)
+	for rowIndex := range s.Rows {
+		key := s.Cell(rowIndex, columnIndex)
+		if entry, ok := entries[key]; ok {
+			entry.count++
+			continue
+		}
+		entries[key] = &dedupeEntry{rowIndex: rowIndex, count: 1}
+		order = append(order, key)
+	}
+
+	sh := New(fmt.Sprintf("dedupe:%s:%s", s.Name, s.Columns[columnIndex].Name), s.Source, headers)
+	for i, visibleIndex := range visibleCols {
+		sh.Columns[i].Kind = s.Columns[visibleIndex].EffectiveKind()
+		sh.Columns[i].Width = s.Columns[visibleIndex].Width
+	}
+	sh.Columns[len(sh.Columns)-1].Kind = KindInt
+
+	for _, key := range order {
+		entry := entries[key]
+		row := append(visibleRowValues(s.Rows[entry.rowIndex], visibleCols), strconv.Itoa(entry.count))
+		sh.AddRawRow(row)
+	}
+
+	return sh, nil
+}
+
 func (s *Sheet) FrequencySheet(columnIndex int) (*Sheet, error) {
 	if columnIndex < 0 || columnIndex >= len(s.Columns) {
 		return nil, fmt.Errorf("column %d out of range", columnIndex)

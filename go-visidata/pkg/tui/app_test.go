@@ -208,12 +208,12 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 		t.Fatalf("Init returned error: %v", err)
 	}
 	defer screen.Fini()
-	screen.SetSize(420, 8)
+	screen.SetSize(560, 8)
 
 	app := New(sh, screen)
 	app.Draw()
 
-	lines := snapshot(screen, 420, 8)
+	lines := snapshot(screen, 560, 8)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"* ",
@@ -221,6 +221,8 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 		"search \"o\"",
 		"sel 1",
 		"cell \"20\"",
+		"f freeze",
+		"D dedupe",
 		"c / C copy",
 		"d delete",
 		"S save",
@@ -295,6 +297,22 @@ func TestHandleKeyOpensDerivedSheetsAndPopsBack(t *testing.T) {
 	sh.InferColumnKinds()
 
 	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'f', tcell.ModNone))
+	if got := app.Sheet.Name; got != "freeze:people.csv" {
+		t.Fatalf("freeze sheet name = %q, want freeze:people.csv", got)
+	}
+	if quit := app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)); quit {
+		t.Fatal("q should pop frozen sheet before quitting")
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'D', tcell.ModNone))
+	if got := app.Sheet.Name; got != "dedupe:people.csv:city" {
+		t.Fatalf("dedupe sheet name = %q, want dedupe:people.csv:city", got)
+	}
+	if quit := app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)); quit {
+		t.Fatal("q should pop dedupe sheet before quitting")
+	}
+
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'F', tcell.ModNone))
 	if got := app.Sheet.Name; got != "freq:people.csv:city" {
 		t.Fatalf("frequency sheet name = %q, want freq:people.csv:city", got)
@@ -383,16 +401,18 @@ func TestDrawRendersDeleteAndSaveStatus(t *testing.T) {
 		t.Fatalf("Init returned error: %v", err)
 	}
 	defer screen.Fini()
-	screen.SetSize(320, 8)
+	screen.SetSize(560, 8)
 
 	app := New(sh, screen)
 	app.Draw()
 
-	lines := snapshot(screen, 320, 8)
+	lines := snapshot(screen, 560, 8)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"deleted rows 1",
 		"deleted 1 row(s)",
+		"f freeze",
+		"D dedupe",
 		"d delete",
 		"F freq",
 		"I describe",
@@ -462,6 +482,7 @@ func TestDrawRendersMetaStackStatus(t *testing.T) {
 	for _, want := range []string{
 		"columns:people.csv",
 		"stack 2",
+		"f freeze",
 		"V sheets",
 		"? commands",
 	} {

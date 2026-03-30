@@ -2,6 +2,62 @@ package sheet
 
 import "testing"
 
+func TestFreezeSheetCopiesVisibleColumnsAndKinds(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
+	sh.AddRow([]string{"Alice", "30", "Tokyo"})
+	sh.AddRow([]string{"Bob", "20", "Osaka"})
+	sh.InferColumnKinds()
+	if err := sh.ToggleHidden(2); err != nil {
+		t.Fatalf("ToggleHidden returned error: %v", err)
+	}
+	if err := sh.OverrideColumnKind(1, KindCurrency); err != nil {
+		t.Fatalf("OverrideColumnKind returned error: %v", err)
+	}
+
+	frozen := sh.FreezeSheet()
+	if got := frozen.Name; got != "freeze:people.csv" {
+		t.Fatalf("freeze sheet name = %q, want %q", got, "freeze:people.csv")
+	}
+	if len(frozen.Columns) != 2 {
+		t.Fatalf("len(columns) = %d, want 2", len(frozen.Columns))
+	}
+	if got := frozen.Columns[1].Kind; got != KindCurrency {
+		t.Fatalf("age kind = %s, want currency", got)
+	}
+	if got := frozen.Cell(1, 1); got != "20" {
+		t.Fatalf("frozen value = %q, want 20", got)
+	}
+}
+
+func TestDedupeSheetPreservesFirstRowAndCountsDuplicates(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"city", "age"})
+	sh.AddRow([]string{"Tokyo", "30"})
+	sh.AddRow([]string{"Tokyo", "20"})
+	sh.AddRow([]string{"Osaka", "10"})
+	sh.AddRow([]string{"Tokyo", "40"})
+	sh.InferColumnKinds()
+
+	dedupe, err := sh.DedupeSheet(0)
+	if err != nil {
+		t.Fatalf("DedupeSheet returned error: %v", err)
+	}
+	if got := dedupe.Name; got != "dedupe:people.csv:city" {
+		t.Fatalf("dedupe sheet name = %q, want %q", got, "dedupe:people.csv:city")
+	}
+	if len(dedupe.Rows) != 2 {
+		t.Fatalf("len(rows) = %d, want 2", len(dedupe.Rows))
+	}
+	if got := dedupe.Cell(0, 1); got != "30" {
+		t.Fatalf("first dedupe row should keep first age, got %q", got)
+	}
+	if got := dedupe.Cell(0, 2); got != "3" {
+		t.Fatalf("duplicate count = %q, want 3", got)
+	}
+	if got := dedupe.Columns[2].Kind; got != KindInt {
+		t.Fatalf("duplicate_count kind = %s, want int", got)
+	}
+}
+
 func TestFrequencySheet(t *testing.T) {
 	sh := New("people.csv", "/tmp/people.csv", []string{"city", "age"})
 	sh.AddRow([]string{"Tokyo", "30"})
