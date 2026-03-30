@@ -37,10 +37,15 @@ printf '{"name":"Alice","age":30}\n{"name":"Bob","age":40}\n' | go run ./cmd/vdg
 - `[` / `]`: sort ascending / descending on the current column
 - `/`: search for a case-insensitive substring, `n` / `N`: next / previous match
 - `s`: toggle current row selection, `t`: select all rows, `u`: clear selection
+- `|`: regex-select rows matching the current column, `\`: regex-unselect matching rows
 - `c`: copy the current cell to the internal clipboard
 - `C`: copy selected rows (or the current row) to the internal clipboard
 - `d`: delete selected rows (or the current row) and copy the deleted data to the clipboard
 - `S` / `Ctrl+S`: save the current sheet to a suggested export path
+- `-`: hide the current column, `H`: show all hidden columns
+- `^`: rename the current column
+- `_`: set the display width for the current column
+- `~` / `#` / `%` / `$` / `@`: override the current column type to string, int, float, currency, or date
 
 Use `-n` to keep the existing non-interactive preview mode.
 Use `-save` to export the loaded sheet to a `.csv`, `.tsv`, or `.json` file and exit.

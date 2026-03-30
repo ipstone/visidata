@@ -94,7 +94,7 @@ func (s *Sheet) ToggleSort(columnIndex int, direction SortDirection) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		left := cellAt(rows[i].row, columnIndex)
 		right := cellAt(rows[j].row, columnIndex)
-		cmp := compareValues(s.Columns[columnIndex].Kind, left, right)
+		cmp := compareValues(s.Columns[columnIndex].EffectiveKind(), left, right)
 		if cmp == 0 {
 			return rows[i].rowID < rows[j].rowID
 		}
@@ -161,7 +161,7 @@ func (s *Sheet) Search(query string) int {
 	lowerQuery := strings.ToLower(query)
 	matches := make([]Position, 0)
 	for rowIndex := range s.Rows {
-		for colIndex := range s.Columns {
+		for _, colIndex := range s.VisibleColumnIndices() {
 			if strings.Contains(strings.ToLower(s.Cell(rowIndex, colIndex)), lowerQuery) {
 				matches = append(matches, Position{Row: rowIndex, Col: colIndex})
 			}
@@ -237,7 +237,7 @@ func compareValues(kind ValueKind, left, right string) int {
 	switch kind {
 	case KindInt:
 		return compareInts(left, right)
-	case KindFloat:
+	case KindFloat, KindCurrency:
 		return compareFloats(left, right)
 	case KindBool:
 		return compareBools(left, right)

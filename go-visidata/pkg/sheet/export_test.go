@@ -77,3 +77,31 @@ func TestSuggestedSavePathUsesSourceFormat(t *testing.T) {
 		t.Fatalf("SuggestedSavePath(stdin) = %q, want %q", got, "stdin.vdgo.csv")
 	}
 }
+
+func TestExportSkipsHiddenColumnsAndUsesOverrides(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"name", "city", "amount"})
+	sh.AddRow([]string{"Alice", "Tokyo", "$30"})
+	sh.AddRow([]string{"Bob", "Osaka", "$20"})
+	sh.Columns[2].OverrideKind = KindCurrency
+	sh.Columns[1].Hidden = true
+
+	path := filepath.Join(t.TempDir(), "people.json")
+	if err := sh.Export(path); err != nil {
+		t.Fatalf("Export returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	var got []map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal returned error: %v\n%s", err, string(data))
+	}
+	if _, exists := got[0]["city"]; exists {
+		t.Fatalf("hidden column should not be exported: %#v", got[0])
+	}
+	if amount, ok := got[0]["amount"].(float64); !ok || amount != 30 {
+		t.Fatalf("amount = %#v, want numeric 30", got[0]["amount"])
+	}
+}

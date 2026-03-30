@@ -3,12 +3,12 @@ package sheet
 import "testing"
 
 func TestInferColumnKinds(t *testing.T) {
-	sh := New("test.csv", "/tmp/test.csv", []string{"id", "price", "created_at", "label"})
-	sh.AddRow([]string{"1", "12.50", "2026-03-30", "alpha"})
-	sh.AddRow([]string{"2", "99.00", "2026-03-31", "beta"})
+	sh := New("test.csv", "/tmp/test.csv", []string{"id", "price", "created_at", "label", "cost"})
+	sh.AddRow([]string{"1", "12.50", "2026-03-30", "alpha", "$10.00"})
+	sh.AddRow([]string{"2", "99.00", "2026-03-31", "beta", "$20.00"})
 	sh.InferColumnKinds()
 
-	want := []ValueKind{KindInt, KindFloat, KindDate, KindString}
+	want := []ValueKind{KindInt, KindFloat, KindDate, KindString, KindCurrency}
 	for i, col := range sh.Columns {
 		if col.Kind != want[i] {
 			t.Fatalf("column %d kind = %s, want %s", i, col.Kind, want[i])
@@ -195,5 +195,79 @@ func TestDeleteSelectedRowsOrCurrentFallsBackToCursorRow(t *testing.T) {
 	}
 	if sh.CursorRow != 0 {
 		t.Fatalf("CursorRow after delete = %d, want 0", sh.CursorRow)
+	}
+}
+
+func TestOverrideColumnKindAffectsSort(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"value"})
+	sh.AddRow([]string{"10"})
+	sh.AddRow([]string{"2"})
+	sh.InferColumnKinds()
+
+	if err := sh.OverrideColumnKind(0, KindString); err != nil {
+		t.Fatalf("OverrideColumnKind returned error: %v", err)
+	}
+	sh.ToggleSort(0, SortAsc)
+	if got := sh.Cell(0, 0); got != "10" {
+		t.Fatalf("first row after string sort = %q, want 10", got)
+	}
+}
+
+func TestHideRenameResizeAndRegexSelection(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"name", "city", "amount"})
+	sh.AddRow([]string{"Alice", "Tokyo", "$30"})
+	sh.AddRow([]string{"Bob", "Osaka", "$20"})
+	sh.AddRow([]string{"Carol", "Kyoto", "$10"})
+	sh.InferColumnKinds()
+
+	if err := sh.RenameColumn(1, "location"); err != nil {
+		t.Fatalf("RenameColumn returned error: %v", err)
+	}
+	if got := sh.Columns[1].Name; got != "location" {
+		t.Fatalf("renamed column = %q, want location", got)
+	}
+	if err := sh.SetColumnWidth(1, 14); err != nil {
+		t.Fatalf("SetColumnWidth returned error: %v", err)
+	}
+	if got := sh.Columns[1].Width; got != 14 {
+		t.Fatalf("column width = %d, want 14", got)
+	}
+	if err := sh.ToggleHidden(1); err != nil {
+		t.Fatalf("ToggleHidden returned error: %v", err)
+	}
+	if got := sh.HiddenColumnCount(); got != 1 {
+		t.Fatalf("HiddenColumnCount = %d, want 1", got)
+	}
+	if got := sh.VisibleColumnIndices(); len(got) != 2 || got[0] != 0 || got[1] != 2 {
+		t.Fatalf("VisibleColumnIndices = %#v, want [0 2]", got)
+	}
+
+	count, err := sh.SelectByRegex(0, "^A|C", false)
+	if err != nil {
+		t.Fatalf("SelectByRegex returned error: %v", err)
+	}
+	if count != 2 || sh.SelectedCount() != 2 {
+		t.Fatalf("regex selected count = %d / total %d, want 2", count, sh.SelectedCount())
+	}
+
+	count, err = sh.UnselectByRegex(0, "Carol", false)
+	if err != nil {
+		t.Fatalf("UnselectByRegex returned error: %v", err)
+	}
+	if count != 1 || sh.SelectedCount() != 1 {
+		t.Fatalf("regex unselected count = %d / total %d, want 1", count, sh.SelectedCount())
+	}
+
+	if revealed := sh.ShowAllColumns(); revealed != 1 {
+		t.Fatalf("ShowAllColumns = %d, want 1", revealed)
+	}
+}
+
+func TestCannotHideLastVisibleColumn(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"name"})
+	sh.AddRow([]string{"Alice"})
+
+	if err := sh.ToggleHidden(0); err == nil {
+		t.Fatal("expected hiding last visible column to fail")
 	}
 }

@@ -131,6 +131,68 @@ func TestHandleKeySortSearchAndSelection(t *testing.T) {
 	}
 }
 
+func TestHandleKeyColumnOpsAndRegexSelection(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
+	sh.AddRow([]string{"Alice", "30", "Tokyo"})
+	sh.AddRow([]string{"Bob", "20", "Osaka"})
+	sh.AddRow([]string{"Carol", "10", "Kyoto"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '^', tcell.ModNone))
+	for _, r := range "person" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.Columns[0].Name; got != "person" {
+		t.Fatalf("renamed column = %q, want person", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '_', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '1', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '2', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.Columns[0].Width; got != 12 {
+		t.Fatalf("column width = %d, want 12", got)
+	}
+
+	sh.SetCursorCol(1)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '$', tcell.ModNone))
+	if got := sh.Columns[1].EffectiveKind(); got != sheet.KindCurrency {
+		t.Fatalf("effective kind = %s, want currency", got)
+	}
+
+	sh.SetCursorCol(2)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '|', tcell.ModNone))
+	for _, r := range "o$" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.SelectedCount(); got != 2 {
+		t.Fatalf("SelectedCount after regex select = %d, want 2", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '\\', tcell.ModNone))
+	for _, r := range "Kyoto" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.SelectedCount(); got != 1 {
+		t.Fatalf("SelectedCount after regex unselect = %d, want 1", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '-', tcell.ModNone))
+	if got := sh.HiddenColumnCount(); got != 1 {
+		t.Fatalf("HiddenColumnCount = %d, want 1", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'H', tcell.ModNone))
+	if got := sh.HiddenColumnCount(); got != 0 {
+		t.Fatalf("HiddenColumnCount after H = %d, want 0", got)
+	}
+}
+
 func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
 	sh.AddRow([]string{"Alice", "30"})
@@ -146,12 +208,12 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 		t.Fatalf("Init returned error: %v", err)
 	}
 	defer screen.Fini()
-	screen.SetSize(160, 8)
+	screen.SetSize(220, 8)
 
 	app := New(sh, screen)
 	app.Draw()
 
-	lines := snapshot(screen, 160, 8)
+	lines := snapshot(screen, 220, 8)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"* ",
@@ -162,6 +224,8 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 		"c/C copy",
 		"d delete",
 		"S save",
+		"- hide",
+		"^ rename",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("screen missing %q:\n%s", want, joined)
@@ -250,6 +314,38 @@ func TestDrawRendersDeleteAndSaveStatus(t *testing.T) {
 		"deleted 1 row(s)",
 		"d delete",
 		"S save",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("screen missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestDrawRendersInputPromptAndHiddenColumnsStatus(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
+	sh.AddRow([]string{"Alice", "30", "Tokyo"})
+	sh.AddRow([]string{"Bob", "20", "Osaka"})
+	sh.InferColumnKinds()
+	if err := sh.ToggleHidden(2); err != nil {
+		t.Fatalf("ToggleHidden returned error: %v", err)
+	}
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(180, 8)
+
+	app := New(sh, screen)
+	app.beginInput(inputModeRename, "name")
+	app.Draw()
+
+	lines := snapshot(screen, 180, 8)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"2/3 column(s)",
+		"Rename column: name",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("screen missing %q:\n%s", want, joined)

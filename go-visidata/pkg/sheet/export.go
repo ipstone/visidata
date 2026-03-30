@@ -72,16 +72,16 @@ func (s *Sheet) writeDelimited(file *os.File, comma rune) error {
 	writer := csv.NewWriter(file)
 	writer.Comma = comma
 
-	header := make([]string, len(s.Columns))
-	for i, col := range s.Columns {
-		header[i] = col.Name
+	cols := s.VisibleColumnIndices()
+	header := make([]string, len(cols))
+	for i, colIndex := range cols {
+		header[i] = s.Columns[colIndex].Name
 	}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("write header: %w", err)
 	}
 	for _, row := range s.Rows {
-		record := make([]string, len(s.Columns))
-		copy(record, row)
+		record := visibleRowValues(row, cols)
 		if err := writer.Write(record); err != nil {
 			return fmt.Errorf("write row: %w", err)
 		}
@@ -95,10 +95,12 @@ func (s *Sheet) writeDelimited(file *os.File, comma rune) error {
 
 func (s *Sheet) writeJSON(file *os.File) error {
 	rows := make([]map[string]any, 0, len(s.Rows))
+	cols := s.VisibleColumnIndices()
 	for _, row := range s.Rows {
-		record := make(map[string]any, len(s.Columns))
-		for colIndex, col := range s.Columns {
-			record[col.Name] = typedValue(col.Kind, cellAt(row, colIndex))
+		record := make(map[string]any, len(cols))
+		for _, colIndex := range cols {
+			col := s.Columns[colIndex]
+			record[col.Name] = typedValue(col.EffectiveKind(), cellAt(row, colIndex))
 		}
 		rows = append(rows, record)
 	}
@@ -118,6 +120,10 @@ func typedValue(kind ValueKind, value string) any {
 			return parsed
 		}
 	case KindFloat:
+		if parsed, err := strconv.ParseFloat(normalizeNumber(value), 64); err == nil {
+			return parsed
+		}
+	case KindCurrency:
 		if parsed, err := strconv.ParseFloat(normalizeNumber(value), 64); err == nil {
 			return parsed
 		}

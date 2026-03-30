@@ -11,11 +11,12 @@ import (
 type ValueKind string
 
 const (
-	KindString ValueKind = "string"
-	KindInt    ValueKind = "int"
-	KindFloat  ValueKind = "float"
-	KindBool   ValueKind = "bool"
-	KindDate   ValueKind = "date"
+	KindString   ValueKind = "string"
+	KindInt      ValueKind = "int"
+	KindFloat    ValueKind = "float"
+	KindBool     ValueKind = "bool"
+	KindDate     ValueKind = "date"
+	KindCurrency ValueKind = "currency"
 )
 
 var dateLayouts = []string{
@@ -31,8 +32,11 @@ var dateLayouts = []string{
 }
 
 type Column struct {
-	Name string
-	Kind ValueKind
+	Name         string
+	Kind         ValueKind
+	OverrideKind ValueKind
+	Hidden       bool
+	Width        int
 }
 
 type Row []string
@@ -140,6 +144,9 @@ func (s *Sheet) InferColumnKinds() {
 }
 
 func (s *Sheet) Summary() string {
+	if hidden := s.HiddenColumnCount(); hidden > 0 {
+		return fmt.Sprintf("%s: %d row(s) x %d/%d column(s)", s.Name, len(s.Rows), len(s.VisibleColumnIndices()), len(s.Columns))
+	}
 	return fmt.Sprintf("%s: %d row(s) x %d column(s)", s.Name, len(s.Rows), len(s.Columns))
 }
 
@@ -159,7 +166,30 @@ func (s *Sheet) MoveCursorRow(delta int) {
 }
 
 func (s *Sheet) MoveCursorCol(delta int) {
-	s.CursorCol += delta
+	if delta == 0 || len(s.Columns) == 0 {
+		s.clampCursor()
+		return
+	}
+
+	s.clampCursor()
+	step := 1
+	if delta < 0 {
+		step = -1
+	}
+	for moves := 0; moves < abs(delta); moves++ {
+		next := s.CursorCol
+		for {
+			next += step
+			if next < 0 || next >= len(s.Columns) {
+				s.clampCursor()
+				return
+			}
+			if !s.Columns[next].Hidden {
+				s.CursorCol = next
+				break
+			}
+		}
+	}
 	s.clampCursor()
 }
 
@@ -194,6 +224,19 @@ func (s *Sheet) clampCursor() {
 	}
 	if s.CursorCol >= len(s.Columns) {
 		s.CursorCol = len(s.Columns) - 1
+	}
+	if len(s.VisibleColumnIndices()) == 0 {
+		s.CursorCol = 0
+		return
+	}
+	if s.Columns[s.CursorCol].Hidden {
+		if visible := s.nextVisibleColumn(s.CursorCol, 1); visible >= 0 {
+			s.CursorCol = visible
+			return
+		}
+		if visible := s.nextVisibleColumn(s.CursorCol, -1); visible >= 0 {
+			s.CursorCol = visible
+		}
 	}
 }
 
@@ -230,12 +273,60 @@ func (s *Sheet) SelectedCount() int {
 	return count
 }
 
+func (c Column) EffectiveKind() ValueKind {
+	if c.OverrideKind != "" {
+		return c.OverrideKind
+	}
+	return c.Kind
+}
+
+func (c Column) Label() string {
+	return fmt.Sprintf("%s <%s>", c.Name, c.EffectiveKind())
+}
+
+func (s *Sheet) VisibleColumnIndices() []int {
+	cols := make([]int, 0, len(s.Columns))
+	for i, col := range s.Columns {
+		if !col.Hidden {
+			cols = append(cols, i)
+		}
+	}
+	return cols
+}
+
+func (s *Sheet) HiddenColumnCount() int {
+	count := 0
+	for _, col := range s.Columns {
+		if col.Hidden {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *Sheet) nextVisibleColumn(start, delta int) int {
+	for i := start + delta; i >= 0 && i < len(s.Columns); i += delta {
+		if !s.Columns[i].Hidden {
+			return i
+		}
+	}
+	return -1
+}
+
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 func inferKindForColumn(rows []Row, columnIndex int) ValueKind {
 	seen := 0
 	allInt := true
 	allFloat := true
 	allBool := true
 	allDate := true
+	allCurrency := true
 
 	for _, row := range rows {
 		if columnIndex >= len(row) {
@@ -252,6 +343,9 @@ func inferKindForColumn(rows []Row, columnIndex int) ValueKind {
 		if _, err := strconv.ParseFloat(normalizeNumber(value), 64); err != nil {
 			allFloat = false
 		}
+		if !looksLikeCurrency(value) {
+			allCurrency = false
+		}
 		if _, err := strconv.ParseBool(strings.ToLower(value)); err != nil {
 			allBool = false
 		}
@@ -267,6 +361,9 @@ func inferKindForColumn(rows []Row, columnIndex int) ValueKind {
 		return KindInt
 	}
 	if allFloat {
+		if allCurrency {
+			return KindCurrency
+		}
 		return KindFloat
 	}
 	if allBool {
@@ -287,6 +384,14 @@ func normalizeNumber(value string) string {
 		"¥", "",
 	)
 	return replacer.Replace(value)
+}
+
+func looksLikeCurrency(value string) bool {
+	if !strings.ContainsAny(value, "$€£¥") {
+		return false
+	}
+	_, err := strconv.ParseFloat(normalizeNumber(value), 64)
+	return err == nil
 }
 
 func looksLikeDate(value string) bool {

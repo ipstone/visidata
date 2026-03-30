@@ -28,8 +28,9 @@ func (s *Sheet) CopySelectedRowsOrCurrent() bool {
 	}
 
 	content := make([]string, 0, len(rows))
+	cols := s.VisibleColumnIndices()
 	for _, rowIndex := range rows {
-		content = append(content, strings.Join(s.Rows[rowIndex], "\t"))
+		content = append(content, strings.Join(visibleRowValues(s.Rows[rowIndex], cols), "\t"))
 	}
 
 	s.Clipboard = Clipboard{
@@ -46,11 +47,12 @@ func (s *Sheet) copyRows(rows []int, kind string) bool {
 	}
 
 	content := make([]string, 0, len(rows))
+	cols := s.VisibleColumnIndices()
 	for _, rowIndex := range rows {
 		if rowIndex < 0 || rowIndex >= len(s.Rows) {
 			continue
 		}
-		content = append(content, strings.Join(s.Rows[rowIndex], "\t"))
+		content = append(content, strings.Join(visibleRowValues(s.Rows[rowIndex], cols), "\t"))
 	}
 	if len(content) == 0 {
 		return false

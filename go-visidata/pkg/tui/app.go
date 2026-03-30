@@ -7,14 +7,25 @@ import (
 	"github.com/ipstone/visidata/go-visidata/pkg/sheet"
 )
 
+type inputMode string
+
+const (
+	inputModeNone          inputMode = ""
+	inputModeSearch        inputMode = "search"
+	inputModeRename        inputMode = "rename"
+	inputModeResize        inputMode = "resize"
+	inputModeRegexSelect   inputMode = "regex-select"
+	inputModeRegexUnselect inputMode = "regex-unselect"
+)
+
 type App struct {
-	Screen      tcell.Screen
-	Sheet       *sheet.Sheet
-	RowOffset   int
-	ColOffset   int
-	searchMode  bool
-	searchQuery []rune
-	colWidths   []int
+	Screen     tcell.Screen
+	Sheet      *sheet.Sheet
+	RowOffset  int
+	ColOffset  int
+	mode       inputMode
+	inputValue []rune
+	colWidths  []int
 }
 
 func New(sh *sheet.Sheet, screen tcell.Screen) *App {
@@ -58,8 +69,8 @@ func (a *App) Run() error {
 }
 
 func (a *App) HandleKey(ev *tcell.EventKey) bool {
-	if a.searchMode {
-		return a.handleSearchKey(ev)
+	if a.mode != inputModeNone {
+		return a.handleInputKey(ev)
 	}
 
 	pageSize := a.pageSize()
@@ -90,8 +101,7 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 		case 'q':
 			return true
 		case '/':
-			a.searchMode = true
-			a.searchQuery = []rune(a.Sheet.SearchState.Query)
+			a.beginInput(inputModeSearch, a.Sheet.SearchState.Query)
 		case 'h':
 			a.Sheet.MoveCursorCol(-1)
 		case 'j':
@@ -132,6 +142,36 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 			}
 		case 'S':
 			a.saveSuggested()
+		case '~':
+			a.overrideColumnType(sheet.KindString)
+		case '#':
+			a.overrideColumnType(sheet.KindInt)
+		case '%':
+			a.overrideColumnType(sheet.KindFloat)
+		case '$':
+			a.overrideColumnType(sheet.KindCurrency)
+		case '@':
+			a.overrideColumnType(sheet.KindDate)
+		case '-':
+			name := a.Sheet.Columns[a.Sheet.CursorCol].Name
+			if err := a.Sheet.ToggleHidden(a.Sheet.CursorCol); err != nil {
+				a.Sheet.Status = fmt.Sprintf("hide failed: %v", err)
+			} else {
+				a.colWidths = columnWidths(a.Sheet)
+				a.Sheet.Status = fmt.Sprintf("toggled hidden for %s", name)
+			}
+		case 'H':
+			count := a.Sheet.ShowAllColumns()
+			a.colWidths = columnWidths(a.Sheet)
+			a.Sheet.Status = fmt.Sprintf("revealed %d column(s)", count)
+		case '^':
+			a.beginInput(inputModeRename, "")
+		case '_':
+			a.beginInput(inputModeResize, "")
+		case '|':
+			a.beginInput(inputModeRegexSelect, "")
+		case '\\':
+			a.beginInput(inputModeRegexUnselect, "")
 		}
 	}
 
@@ -139,21 +179,22 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 	return false
 }
 
-func (a *App) handleSearchKey(ev *tcell.EventKey) bool {
+func (a *App) handleInputKey(ev *tcell.EventKey) bool {
 	switch ev.Key() {
 	case tcell.KeyEscape:
-		a.searchMode = false
-		a.searchQuery = nil
-		a.Sheet.ClearSearch()
+		if a.mode == inputModeSearch {
+			a.Sheet.ClearSearch()
+		}
+		a.mode = inputModeNone
+		a.inputValue = nil
 	case tcell.KeyEnter:
-		a.searchMode = false
-		a.Sheet.Search(string(a.searchQuery))
+		a.commitInput()
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
-		if len(a.searchQuery) > 0 {
-			a.searchQuery = a.searchQuery[:len(a.searchQuery)-1]
+		if len(a.inputValue) > 0 {
+			a.inputValue = a.inputValue[:len(a.inputValue)-1]
 		}
 	case tcell.KeyRune:
-		a.searchQuery = append(a.searchQuery, ev.Rune())
+		a.inputValue = append(a.inputValue, ev.Rune())
 	}
 
 	a.ensureVisible(a.size())
@@ -182,4 +223,63 @@ func (a *App) saveSuggested() {
 		return
 	}
 	a.Sheet.Status = fmt.Sprintf("saved %s", path)
+}
+
+func (a *App) beginInput(mode inputMode, initial string) {
+	a.mode = mode
+	a.inputValue = []rune(initial)
+}
+
+func (a *App) commitInput() {
+	value := string(a.inputValue)
+	mode := a.mode
+	a.mode = inputModeNone
+	a.inputValue = nil
+
+	switch mode {
+	case inputModeSearch:
+		a.Sheet.Search(value)
+	case inputModeRename:
+		if err := a.Sheet.RenameColumn(a.Sheet.CursorCol, value); err != nil {
+			a.Sheet.Status = fmt.Sprintf("rename failed: %v", err)
+			return
+		}
+		a.colWidths = columnWidths(a.Sheet)
+		a.Sheet.Status = fmt.Sprintf("renamed column to %s", a.Sheet.Columns[a.Sheet.CursorCol].Name)
+	case inputModeResize:
+		width, err := sheet.ParseWidth(value)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("resize failed: %v", err)
+			return
+		}
+		if err := a.Sheet.SetColumnWidth(a.Sheet.CursorCol, width); err != nil {
+			a.Sheet.Status = fmt.Sprintf("resize failed: %v", err)
+			return
+		}
+		a.colWidths = columnWidths(a.Sheet)
+		a.Sheet.Status = fmt.Sprintf("set width %d for %s", width, a.Sheet.Columns[a.Sheet.CursorCol].Name)
+	case inputModeRegexSelect:
+		count, err := a.Sheet.SelectByRegex(a.Sheet.CursorCol, value, false)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("select failed: %v", err)
+			return
+		}
+		a.Sheet.Status = fmt.Sprintf("selected %d row(s)", count)
+	case inputModeRegexUnselect:
+		count, err := a.Sheet.UnselectByRegex(a.Sheet.CursorCol, value, false)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("unselect failed: %v", err)
+			return
+		}
+		a.Sheet.Status = fmt.Sprintf("unselected %d row(s)", count)
+	}
+}
+
+func (a *App) overrideColumnType(kind sheet.ValueKind) {
+	if err := a.Sheet.OverrideColumnKind(a.Sheet.CursorCol, kind); err != nil {
+		a.Sheet.Status = fmt.Sprintf("type override failed: %v", err)
+		return
+	}
+	a.colWidths = columnWidths(a.Sheet)
+	a.Sheet.Status = fmt.Sprintf("column %s type set to %s", a.Sheet.Columns[a.Sheet.CursorCol].Name, kind)
 }

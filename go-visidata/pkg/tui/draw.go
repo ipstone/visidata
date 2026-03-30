@@ -38,7 +38,7 @@ func (a *App) Draw() {
 	}
 
 	a.drawRow(1, width, visibleCols, func(col int) string {
-		return fmt.Sprintf("%s <%s>", a.Sheet.Columns[col].Name, a.Sheet.Columns[col].Kind)
+		return a.Sheet.Columns[col].Label()
 	}, headerStyle, -1)
 
 	if height > 2 {
@@ -122,15 +122,18 @@ func (a *App) drawText(x, y, width int, text string, style tcell.Style) int {
 }
 
 func (a *App) statusLine() string {
-	if a.searchMode {
-		return fmt.Sprintf("Search: %s", string(a.searchQuery))
+	if a.mode != inputModeNone {
+		return fmt.Sprintf("%s: %s", a.inputPrompt(), string(a.inputValue))
 	}
 
 	parts := []string{
 		a.Sheet.Name,
 		fmt.Sprintf("row %d/%d", min(a.Sheet.CursorRow+1, len(a.Sheet.Rows)), len(a.Sheet.Rows)),
-		fmt.Sprintf("col %d/%d", min(a.Sheet.CursorCol+1, len(a.Sheet.Columns)), len(a.Sheet.Columns)),
+		fmt.Sprintf("col %d/%d", min(visibleColumnOrdinal(a.Sheet, a.Sheet.CursorCol), len(a.Sheet.VisibleColumnIndices())), len(a.Sheet.VisibleColumnIndices())),
 		fmt.Sprintf("sel %d", a.Sheet.SelectedCount()),
+	}
+	if hidden := a.Sheet.HiddenColumnCount(); hidden > 0 {
+		parts = append(parts, fmt.Sprintf("hidden %d", hidden))
 	}
 	if a.Sheet.SortState.Direction != sheet.SortNone && a.Sheet.SortState.ColumnIndex < len(a.Sheet.Columns) {
 		dir := "↑"
@@ -155,7 +158,7 @@ func (a *App) statusLine() string {
 	if a.Sheet.Status != "" {
 		parts = append(parts, a.Sheet.Status)
 	}
-	parts = append(parts, "q quit", "/ search", "[ ] sort", "s/t/u select", "c/C copy", "d delete", "S save")
+	parts = append(parts, controlHints()...)
 	return strings.Join(parts, "  ")
 }
 
@@ -167,6 +170,9 @@ func (a *App) visibleColumns(width int) []int {
 	var cols []int
 	used := 0
 	for col := a.ColOffset; col < len(a.Sheet.Columns); col++ {
+		if a.Sheet.Columns[col].Hidden {
+			continue
+		}
 		next := a.colWidths[col]
 		if len(cols) > 0 {
 			next += 3
@@ -178,8 +184,12 @@ func (a *App) visibleColumns(width int) []int {
 		cols = append(cols, col)
 	}
 
-	if len(cols) == 0 && a.ColOffset < len(a.Sheet.Columns) {
-		return []int{a.ColOffset}
+	if len(cols) == 0 {
+		for col := a.ColOffset; col < len(a.Sheet.Columns); col++ {
+			if !a.Sheet.Columns[col].Hidden {
+				return []int{col}
+			}
+		}
 	}
 	return cols
 }
@@ -213,13 +223,19 @@ func (a *App) ensureVisible(width, height int) {
 func columnWidths(sh *sheet.Sheet) []int {
 	widths := make([]int, len(sh.Columns))
 	for i, col := range sh.Columns {
-		widths[i] = displayWidth(fmt.Sprintf("%s <%s>", col.Name, col.Kind))
+		widths[i] = displayWidth(col.Label())
+		if col.Width > 0 && col.Width > widths[i] {
+			widths[i] = col.Width
+		}
 	}
 
 	for _, row := range sh.Rows {
 		for i := range sh.Columns {
 			if i < len(row) && displayWidth(row[i]) > widths[i] {
 				widths[i] = displayWidth(row[i])
+			}
+			if sh.Columns[i].Width > 0 {
+				widths[i] = sh.Columns[i].Width
 			}
 		}
 	}
@@ -235,4 +251,56 @@ func padRight(value string, width int) string {
 
 func displayWidth(value string) int {
 	return runewidth.StringWidth(value)
+}
+
+func visibleColumnOrdinal(sh *sheet.Sheet, col int) int {
+	ordinal := 0
+	for i, column := range sh.Columns {
+		if column.Hidden {
+			continue
+		}
+		ordinal++
+		if i == col {
+			return ordinal
+		}
+	}
+	if ordinal == 0 {
+		return 0
+	}
+	return ordinal
+}
+
+func controlHints() []string {
+	return []string{
+		"q quit",
+		"/ search",
+		"[ ] sort",
+		"s/t/u select",
+		"c/C copy",
+		"d delete",
+		"S save",
+		"- hide",
+		"H show-all",
+		"^ rename",
+		"_ width",
+		"~ # % $ @ type",
+		"| / \\ regex",
+	}
+}
+
+func (a *App) inputPrompt() string {
+	switch a.mode {
+	case inputModeSearch:
+		return "Search"
+	case inputModeRename:
+		return "Rename column"
+	case inputModeResize:
+		return "Column width"
+	case inputModeRegexSelect:
+		return "Select regex"
+	case inputModeRegexUnselect:
+		return "Unselect regex"
+	default:
+		return "Input"
+	}
 }
