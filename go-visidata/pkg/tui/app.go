@@ -175,31 +175,45 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 			a.pushSheet(a.buildCommandsSheet())
 			a.Sheet.Status = fmt.Sprintf("commands %s", a.Sheet.Name)
 		case '~':
-			a.overrideColumnType(sheet.KindString)
+			if !a.overrideColumnsMetaType(sheet.KindString) {
+				a.overrideColumnType(sheet.KindString)
+			}
 		case '#':
-			a.overrideColumnType(sheet.KindInt)
+			if !a.overrideColumnsMetaType(sheet.KindInt) {
+				a.overrideColumnType(sheet.KindInt)
+			}
 		case '%':
-			a.overrideColumnType(sheet.KindFloat)
+			if !a.overrideColumnsMetaType(sheet.KindFloat) {
+				a.overrideColumnType(sheet.KindFloat)
+			}
 		case '$':
-			a.overrideColumnType(sheet.KindCurrency)
+			if !a.overrideColumnsMetaType(sheet.KindCurrency) {
+				a.overrideColumnType(sheet.KindCurrency)
+			}
 		case '@':
-			a.overrideColumnType(sheet.KindDate)
+			if !a.overrideColumnsMetaType(sheet.KindDate) {
+				a.overrideColumnType(sheet.KindDate)
+			}
 		case '-':
-			name := a.Sheet.Columns[a.Sheet.CursorCol].Name
-			if err := a.Sheet.ToggleHidden(a.Sheet.CursorCol); err != nil {
-				a.Sheet.Status = fmt.Sprintf("hide failed: %v", err)
-			} else {
-				a.colWidths = columnWidths(a.Sheet)
-				a.Sheet.Status = fmt.Sprintf("toggled hidden for %s", name)
+			if !a.toggleColumnsMetaHidden() {
+				name := a.Sheet.Columns[a.Sheet.CursorCol].Name
+				if err := a.Sheet.ToggleHidden(a.Sheet.CursorCol); err != nil {
+					a.Sheet.Status = fmt.Sprintf("hide failed: %v", err)
+				} else {
+					a.colWidths = columnWidths(a.Sheet)
+					a.Sheet.Status = fmt.Sprintf("toggled hidden for %s", name)
+				}
 			}
 		case 'H':
-			count := a.Sheet.ShowAllColumns()
-			a.colWidths = columnWidths(a.Sheet)
-			a.Sheet.Status = fmt.Sprintf("revealed %d column(s)", count)
+			if !a.showAllColumnsMeta() {
+				count := a.Sheet.ShowAllColumns()
+				a.colWidths = columnWidths(a.Sheet)
+				a.Sheet.Status = fmt.Sprintf("revealed %d column(s)", count)
+			}
 		case '^':
-			a.beginInput(inputModeRename, "")
+			a.beginRenameInput()
 		case '_':
-			a.beginInput(inputModeResize, "")
+			a.beginResizeInput()
 		case '|':
 			a.beginInput(inputModeRegexSelect, "")
 		case '\\':
@@ -257,6 +271,98 @@ func (a *App) openDedupeSheet() {
 	}
 	a.pushSheet(sh)
 	a.Sheet.Status = fmt.Sprintf("dedupe %s", a.Sheet.Name)
+}
+
+func (a *App) columnsMetaTarget() (*sheet.Sheet, int, bool) {
+	if a.Sheet.MetaKind != "columns" || len(a.Sheet.MetaTargets) == 0 {
+		return nil, 0, false
+	}
+	if a.Sheet.CursorRow < 0 || a.Sheet.CursorRow >= len(a.Sheet.MetaRows) {
+		return nil, 0, false
+	}
+	return a.Sheet.MetaTargets[0], a.Sheet.MetaRows[a.Sheet.CursorRow], true
+}
+
+func (a *App) refreshColumnsMeta(status string) {
+	source, _, ok := a.columnsMetaTarget()
+	if !ok {
+		return
+	}
+	oldRow := a.Sheet.CursorRow
+	oldCol := a.Sheet.CursorCol
+	refreshed := source.ColumnsSheet()
+	if oldRow >= len(refreshed.Rows) {
+		oldRow = len(refreshed.Rows) - 1
+	}
+	if oldRow < 0 {
+		oldRow = 0
+	}
+	if oldCol >= len(refreshed.Columns) {
+		oldCol = len(refreshed.Columns) - 1
+	}
+	if oldCol < 0 {
+		oldCol = 0
+	}
+	refreshed.SetCursorRow(oldRow)
+	refreshed.SetCursorCol(oldCol)
+	refreshed.Status = status
+	a.stack[len(a.stack)-1] = refreshed
+	a.Sheet = refreshed
+	a.colWidths = columnWidths(refreshed)
+	a.ensureVisible(a.size())
+}
+
+func (a *App) toggleColumnsMetaHidden() bool {
+	source, columnIndex, ok := a.columnsMetaTarget()
+	if !ok {
+		return false
+	}
+	name := source.Columns[columnIndex].Name
+	if err := source.ToggleHidden(columnIndex); err != nil {
+		a.Sheet.Status = fmt.Sprintf("hide failed: %v", err)
+		return true
+	}
+	a.refreshColumnsMeta(fmt.Sprintf("toggled hidden for %s", name))
+	return true
+}
+
+func (a *App) showAllColumnsMeta() bool {
+	source, _, ok := a.columnsMetaTarget()
+	if !ok {
+		return false
+	}
+	count := source.ShowAllColumns()
+	a.refreshColumnsMeta(fmt.Sprintf("revealed %d column(s)", count))
+	return true
+}
+
+func (a *App) overrideColumnsMetaType(kind sheet.ValueKind) bool {
+	source, columnIndex, ok := a.columnsMetaTarget()
+	if !ok {
+		return false
+	}
+	if err := source.OverrideColumnKind(columnIndex, kind); err != nil {
+		a.Sheet.Status = fmt.Sprintf("type override failed: %v", err)
+		return true
+	}
+	a.refreshColumnsMeta(fmt.Sprintf("column %s type set to %s", source.Columns[columnIndex].Name, kind))
+	return true
+}
+
+func (a *App) beginRenameInput() {
+	if _, _, ok := a.columnsMetaTarget(); ok {
+		a.beginInput(inputModeRename, "")
+		return
+	}
+	a.beginInput(inputModeRename, "")
+}
+
+func (a *App) beginResizeInput() {
+	if _, _, ok := a.columnsMetaTarget(); ok {
+		a.beginInput(inputModeResize, "")
+		return
+	}
+	a.beginInput(inputModeResize, "")
 }
 
 func (a *App) buildSheetsSheet() *sheet.Sheet {
@@ -377,6 +483,14 @@ func (a *App) commitInput() {
 	case inputModeSearch:
 		a.Sheet.Search(value)
 	case inputModeRename:
+		if source, columnIndex, ok := a.columnsMetaTarget(); ok {
+			if err := source.RenameColumn(columnIndex, value); err != nil {
+				a.Sheet.Status = fmt.Sprintf("rename failed: %v", err)
+				return
+			}
+			a.refreshColumnsMeta(fmt.Sprintf("renamed column to %s", source.Columns[columnIndex].Name))
+			return
+		}
 		if err := a.Sheet.RenameColumn(a.Sheet.CursorCol, value); err != nil {
 			a.Sheet.Status = fmt.Sprintf("rename failed: %v", err)
 			return
@@ -387,6 +501,14 @@ func (a *App) commitInput() {
 		width, err := sheet.ParseWidth(value)
 		if err != nil {
 			a.Sheet.Status = fmt.Sprintf("resize failed: %v", err)
+			return
+		}
+		if source, columnIndex, ok := a.columnsMetaTarget(); ok {
+			if err := source.SetColumnWidth(columnIndex, width); err != nil {
+				a.Sheet.Status = fmt.Sprintf("resize failed: %v", err)
+				return
+			}
+			a.refreshColumnsMeta(fmt.Sprintf("set width %d for %s", width, source.Columns[columnIndex].Name))
 			return
 		}
 		if err := a.Sheet.SetColumnWidth(a.Sheet.CursorCol, width); err != nil {

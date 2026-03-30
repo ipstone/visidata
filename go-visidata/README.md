@@ -43,7 +43,7 @@ printf '{"name":"Alice","age":30}\n{"name":"Bob","age":40}\n' | go run ./cmd/vdg
 - `I`: open a describe sheet for the current sheet
 - `T`: transpose the current sheet
 - `V`: open the current sheet stack and press `Enter` to jump to a sheet
-- `M`: open a columns metasheet for the current sheet
+- `M`: open an editable columns metasheet for the current sheet
 - `O`: open a viewer state sheet for the current sheet
 - `?`: open the command reference sheet
 - `/`: search for a case-insensitive substring, `n` / `N`: next / previous match

@@ -386,6 +386,65 @@ func TestHandleKeyOpensMetaSheetsAndSelectsStackEntry(t *testing.T) {
 	}
 }
 
+func TestHandleKeyEditsColumnsMetasheetSource(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
+	sh.AddRow([]string{"Alice", "30", "Tokyo"})
+	sh.AddRow([]string{"Bob", "20", "Osaka"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'M', tcell.ModNone))
+	app.Sheet.SetCursorRow(1)
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '$', tcell.ModNone))
+	if got := sh.Columns[1].EffectiveKind(); got != sheet.KindCurrency {
+		t.Fatalf("source type = %s, want currency", got)
+	}
+	if got := app.Sheet.Cell(1, 2); got != "currency" {
+		t.Fatalf("meta type = %q, want currency", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '^', tcell.ModNone))
+	for _, r := range "years" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.Columns[1].Name; got != "years" {
+		t.Fatalf("source column name = %q, want years", got)
+	}
+	if got := app.Sheet.Cell(1, 1); got != "years" {
+		t.Fatalf("meta column name = %q, want years", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '_', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '1', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '4', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.Columns[1].Width; got != 14 {
+		t.Fatalf("source column width = %d, want 14", got)
+	}
+	if got := app.Sheet.Cell(1, 3); got != "14" {
+		t.Fatalf("meta column width = %q, want 14", got)
+	}
+
+	app.Sheet.SetCursorRow(2)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '-', tcell.ModNone))
+	if got := sh.HiddenColumnCount(); got != 1 {
+		t.Fatalf("hidden column count = %d, want 1", got)
+	}
+	if got := app.Sheet.Cell(2, 4); got != "true" {
+		t.Fatalf("meta hidden state = %q, want true", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'H', tcell.ModNone))
+	if got := sh.HiddenColumnCount(); got != 0 {
+		t.Fatalf("hidden column count after H = %d, want 0", got)
+	}
+	if got := app.Sheet.Cell(2, 4); got != "false" {
+		t.Fatalf("meta hidden state after H = %q, want false", got)
+	}
+}
+
 func TestDrawRendersDeleteAndSaveStatus(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "people.csv")

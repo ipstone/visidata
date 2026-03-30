@@ -4,21 +4,20 @@ import "strconv"
 
 func (s *Sheet) ColumnsSheet() *Sheet {
 	sh := New("columns:"+s.Name, s.Source, []string{"index", "name", "type", "width", "hidden", "visible"})
+	sh.MetaKind = "columns"
+	sh.MetaTargets = []*Sheet{s}
 	sh.Columns[0].Kind = KindInt
 	sh.Columns[3].Kind = KindInt
 	sh.Columns[4].Kind = KindBool
 	sh.Columns[5].Kind = KindBool
 
-	visibleOrder := 0
 	for i, col := range s.Columns {
 		visible := !col.Hidden
-		if visible {
-			visibleOrder++
-		}
 		width := col.Width
 		if width <= 0 {
 			width = len(col.Label())
 		}
+		sh.MetaRows = append(sh.MetaRows, i)
 		sh.AddRawRow([]string{
 			strconv.Itoa(i + 1),
 			col.Name,

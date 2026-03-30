@@ -17,6 +17,15 @@ func TestColumnsSheet(t *testing.T) {
 	if got := cols.Name; got != "columns:people.csv" {
 		t.Fatalf("columns sheet name = %q, want %q", got, "columns:people.csv")
 	}
+	if got := cols.MetaKind; got != "columns" {
+		t.Fatalf("MetaKind = %q, want columns", got)
+	}
+	if len(cols.MetaTargets) != 1 || cols.MetaTargets[0] != sh {
+		t.Fatalf("MetaTargets = %#v, want source sheet pointer", cols.MetaTargets)
+	}
+	if len(cols.MetaRows) != 3 || cols.MetaRows[2] != 2 {
+		t.Fatalf("MetaRows = %#v, want [0 1 2]", cols.MetaRows)
+	}
 	if len(cols.Rows) != 3 {
 		t.Fatalf("len(rows) = %d, want 3", len(cols.Rows))
 	}

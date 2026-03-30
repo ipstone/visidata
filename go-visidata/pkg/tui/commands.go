@@ -16,7 +16,7 @@ var commandCatalog = []commandInfo{
 	{Keys: "I", Name: "describe", Help: "open a describe sheet for the current sheet"},
 	{Keys: "T", Name: "transpose", Help: "transpose the current sheet"},
 	{Keys: "V", Name: "sheets", Help: "open the current sheet stack"},
-	{Keys: "M", Name: "columns", Help: "open a columns metasheet"},
+	{Keys: "M", Name: "columns", Help: "open an editable columns metasheet"},
 	{Keys: "O", Name: "options", Help: "open a viewer state sheet"},
 	{Keys: "?", Name: "commands", Help: "open the command reference"},
 	{Keys: "s / t / u", Name: "select", Help: "toggle, select all, or clear row selection"},

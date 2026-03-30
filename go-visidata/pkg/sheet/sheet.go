@@ -77,6 +77,7 @@ type Sheet struct {
 	Columns     []Column
 	Rows        []Row
 	MetaKind    string
+	MetaRows    []int
 	MetaTargets []*Sheet
 	CursorRow   int
 	CursorCol   int
