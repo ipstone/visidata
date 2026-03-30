@@ -64,7 +64,7 @@ func decodeJSONLines(reader io.Reader) ([]any, error) {
 		}
 
 		var value any
-		if err := json.Unmarshal([]byte(line), &value); err != nil {
+		if err := json.NewDecoder(strings.NewReader(line)).Decode(&value); err != nil {
 			return nil, fmt.Errorf("decode jsonl line %d: %w", lineNo, err)
 		}
 		records = append(records, value)

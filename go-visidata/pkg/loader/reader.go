@@ -2,6 +2,7 @@ package loader
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -25,8 +26,9 @@ func openReader(path string) (*os.File, func() error, error) {
 		}
 		return f, func() error {
 			name := f.Name()
-			_ = f.Close()
-			return os.Remove(name)
+			closeErr := f.Close()
+			removeErr := os.Remove(name)
+			return errors.Join(closeErr, removeErr)
 		}, nil
 	}
 
@@ -56,6 +58,8 @@ func firstDataLine(f *os.File) (string, error) {
 	return "", nil
 }
 
+// isCommentLine is used by JSON/JSONL detection and parsing so that simple
+// fixture-style comment lines beginning with # or // are skipped.
 func isCommentLine(line string) bool {
 	return strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//")
 }

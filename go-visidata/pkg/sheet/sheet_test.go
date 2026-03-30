@@ -23,3 +23,23 @@ func TestSummary(t *testing.T) {
 		t.Fatalf("summary = %q, want %q", got, want)
 	}
 }
+
+func TestLooksLikeDate(t *testing.T) {
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{value: "2026-03-30", want: true},
+		{value: "2026-03-30 17:59:44", want: true},
+		{value: "7/3/2018 1:47p", want: true},
+		{value: "7/3/2018 1:47pm", want: true},
+		{value: "7/3/2018 1:47PM", want: true},
+		{value: "not-a-date", want: false},
+	}
+
+	for _, tc := range tests {
+		if got := looksLikeDate(tc.value); got != tc.want {
+			t.Fatalf("looksLikeDate(%q) = %v, want %v", tc.value, got, tc.want)
+		}
+	}
+}

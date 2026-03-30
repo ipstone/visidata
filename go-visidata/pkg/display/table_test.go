@@ -14,7 +14,14 @@ func TestRenderPreview(t *testing.T) {
 	sh.InferColumnKinds()
 
 	out := RenderPreview(sh, 1)
-	for _, want := range []string{"people.csv: 2 row(s) x 2 column(s)", "name <string>", "age <int>", "Alice", "... showing first 1 of 2 row(s)"} {
+	wants := []string{
+		"people.csv: 2 row(s) x 2 column(s)",
+		"name <string>",
+		"age <int>",
+		"Alice",
+		"... showing first 1 of 2 row(s)",
+	}
+	for _, want := range wants {
 		if !strings.Contains(out, want) {
 			t.Fatalf("preview missing %q in output:\n%s", want, out)
 		}

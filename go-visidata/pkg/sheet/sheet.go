@@ -139,13 +139,19 @@ func normalizeNumber(value string) string {
 }
 
 func looksLikeDate(value string) bool {
-	// Go time layouts use the reference timestamp 1/2/2006 3:04PM.
+	// Go time layouts are written using the reference timestamp
+	// Mon Jan 2 15:04:05 MST 2006, where the specific digits encode month=1,
+	// day=2, hour=3/15, minute=4, second=5, and year=2006.
 	// These layouts cover the simple ISO and month/day formats seen in the
-	// existing VisiData sample data fixtures.
+	// existing VisiData sample data fixtures, including benchmark CSV/JSONL
+	// timestamps such as 7/3/2018 1:47p and date-only values like 2026-03-30.
 	layouts := []string{
 		time.RFC3339,
 		"2006-01-02",
 		"2006-01-02 15:04:05",
+		// Go layouts are case-sensitive, so these variants are all required to
+		// match the timestamp suffixes found in VisiData fixtures and common
+		// terminal-exported data (`PM`, `pm`, and short `p`).
 		"1/2/2006",
 		"1/2/2006 3:04PM",
 		"1/2/2006 3:04pm",

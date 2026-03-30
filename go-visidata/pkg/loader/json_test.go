@@ -38,7 +38,13 @@ func TestLoadJSONL(t *testing.T) {
 func TestLoadJSONDocument(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "items.json")
-	if err := os.WriteFile(path, []byte("# comment\n[\n  {\"id\": 1, \"name\": \"alpha\"},\n  {\"id\": 2, \"name\": \"beta\"}\n]\n"), 0o644); err != nil {
+	content := []byte(`# comment
+[
+  {"id": 1, "name": "alpha"},
+  {"id": 2, "name": "beta"}
+]
+`)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
@@ -69,5 +75,17 @@ func TestLoadJSONObjectAsSingleRow(t *testing.T) {
 
 	if len(sh.Rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(sh.Rows))
+	}
+}
+
+func TestLoadJSONDocumentWithOnlyCommentsFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "comments.json")
+	if err := os.WriteFile(path, []byte("# comment\n// another comment\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected comments-only JSON document to return an error")
 	}
 }
