@@ -132,6 +132,9 @@ func (a *App) statusLine() string {
 		fmt.Sprintf("col %d/%d", min(visibleColumnOrdinal(a.Sheet, a.Sheet.CursorCol), len(a.Sheet.VisibleColumnIndices())), len(a.Sheet.VisibleColumnIndices())),
 		fmt.Sprintf("sel %d", a.Sheet.SelectedCount()),
 	}
+	if len(a.stack) > 1 {
+		parts = append(parts, fmt.Sprintf("stack %d", len(a.stack)))
+	}
 	if hidden := a.Sheet.HiddenColumnCount(); hidden > 0 {
 		parts = append(parts, fmt.Sprintf("hidden %d", hidden))
 	}
@@ -254,6 +257,14 @@ func displayWidth(value string) int {
 }
 
 func visibleColumnOrdinal(sh *sheet.Sheet, col int) int {
+	ordinal := sheetVisibleColumnOrdinal(sh, col)
+	if ordinal == 0 && len(sh.VisibleColumnIndices()) == 0 {
+		return 0
+	}
+	return ordinal
+}
+
+func sheetVisibleColumnOrdinal(sh *sheet.Sheet, col int) int {
 	ordinal := 0
 	for i, column := range sh.Columns {
 		if column.Hidden {
@@ -264,28 +275,7 @@ func visibleColumnOrdinal(sh *sheet.Sheet, col int) int {
 			return ordinal
 		}
 	}
-	if ordinal == 0 {
-		return 0
-	}
 	return ordinal
-}
-
-func controlHints() []string {
-	return []string{
-		"q quit",
-		"/ search",
-		"[ ] sort",
-		"s/t/u select",
-		"c/C copy",
-		"d delete",
-		"S save",
-		"- hide",
-		"H show-all",
-		"^ rename",
-		"_ width",
-		"~ # % $ @ type",
-		"| / \\ regex",
-	}
 }
 
 func (a *App) inputPrompt() string {

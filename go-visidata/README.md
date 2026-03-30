@@ -11,6 +11,7 @@ Current scope:
 - infer simple column types (`string`, `int`, `float`, `bool`, `date`)
 - render a terminal preview table
 - open a minimal interactive terminal viewer with basic navigation
+- open derived analysis sheets for frequency counts, describe summaries, and transpose views
 
 ## Usage
 
@@ -29,12 +30,20 @@ printf '{"name":"Alice","age":30}\n{"name":"Bob","age":40}\n' | go run ./cmd/vdg
 
 ## Controls
 
-- `q`/`Esc`/`Ctrl+C`: quit
+- `q`: quit, or close the current derived sheet and return to the previous sheet
+- `Esc`/`Ctrl+C`: quit
 - arrow keys or `hjkl`: move cursor
 - `PageUp`/`PageDown`: move by page
 - `Home`/`g`: first row
 - `End`/`G`: last row
 - `[` / `]`: sort ascending / descending on the current column
+- `F`: open a frequency table for the current column
+- `I`: open a describe sheet for the current sheet
+- `T`: transpose the current sheet
+- `V`: open the current sheet stack and press `Enter` to jump to a sheet
+- `M`: open a columns metasheet for the current sheet
+- `O`: open a viewer state sheet for the current sheet
+- `?`: open the command reference sheet
 - `/`: search for a case-insensitive substring, `n` / `N`: next / previous match
 - `s`: toggle current row selection, `t`: select all rows, `u`: clear selection
 - `|`: regex-select rows matching the current column, `\`: regex-unselect matching rows

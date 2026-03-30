@@ -208,12 +208,12 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 		t.Fatalf("Init returned error: %v", err)
 	}
 	defer screen.Fini()
-	screen.SetSize(220, 8)
+	screen.SetSize(420, 8)
 
 	app := New(sh, screen)
 	app.Draw()
 
-	lines := snapshot(screen, 220, 8)
+	lines := snapshot(screen, 420, 8)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"* ",
@@ -221,11 +221,11 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 		"search \"o\"",
 		"sel 1",
 		"cell \"20\"",
-		"c/C copy",
+		"c / C copy",
 		"d delete",
 		"S save",
-		"- hide",
-		"^ rename",
+		"- / H columns-visibility",
+		"^ / _ columns-edit",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("screen missing %q:\n%s", want, joined)
@@ -287,6 +287,87 @@ func TestHandleKeySaveSuggestedWritesFile(t *testing.T) {
 	}
 }
 
+func TestHandleKeyOpensDerivedSheetsAndPopsBack(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"city", "age"})
+	sh.AddRow([]string{"Tokyo", "30"})
+	sh.AddRow([]string{"Tokyo", "20"})
+	sh.AddRow([]string{"Osaka", "10"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'F', tcell.ModNone))
+	if got := app.Sheet.Name; got != "freq:people.csv:city" {
+		t.Fatalf("frequency sheet name = %q, want freq:people.csv:city", got)
+	}
+	if len(app.stack) != 2 {
+		t.Fatalf("stack depth = %d, want 2", len(app.stack))
+	}
+	if quit := app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)); quit {
+		t.Fatal("q should pop derived sheet before quitting")
+	}
+	if got := app.Sheet.Name; got != "people.csv" {
+		t.Fatalf("sheet after pop = %q, want people.csv", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'I', tcell.ModNone))
+	if got := app.Sheet.Name; got != "describe:people.csv" {
+		t.Fatalf("describe sheet name = %q, want describe:people.csv", got)
+	}
+	_ = app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone))
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'T', tcell.ModNone))
+	if got := app.Sheet.Name; got != "transpose:people.csv" {
+		t.Fatalf("transpose sheet name = %q, want transpose:people.csv", got)
+	}
+	if quit := app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)); quit {
+		t.Fatal("q should return to the root sheet")
+	}
+	if quit := app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)); !quit {
+		t.Fatal("q on the root sheet should quit")
+	}
+}
+
+func TestHandleKeyOpensMetaSheetsAndSelectsStackEntry(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"city", "age"})
+	sh.AddRow([]string{"Tokyo", "30"})
+	sh.AddRow([]string{"Osaka", "20"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'F', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'V', tcell.ModNone))
+	if got := app.Sheet.Name; got != "sheets" {
+		t.Fatalf("sheets meta name = %q, want sheets", got)
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := app.Sheet.Name; got != "people.csv" {
+		t.Fatalf("sheet after enter = %q, want people.csv", got)
+	}
+	if len(app.stack) != 1 {
+		t.Fatalf("stack depth after selecting root = %d, want 1", len(app.stack))
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'M', tcell.ModNone))
+	if got := app.Sheet.Name; got != "columns:people.csv" {
+		t.Fatalf("columns meta name = %q, want columns:people.csv", got)
+	}
+	_ = app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone))
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'O', tcell.ModNone))
+	if got := app.Sheet.Name; got != "options:people.csv" {
+		t.Fatalf("options meta name = %q, want options:people.csv", got)
+	}
+	_ = app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone))
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '?', tcell.ModNone))
+	if got := app.Sheet.Name; got != "commands" {
+		t.Fatalf("commands meta name = %q, want commands", got)
+	}
+	if got := app.Sheet.Cell(0, 1); got != "quit" {
+		t.Fatalf("first command name = %q, want quit", got)
+	}
+}
+
 func TestDrawRendersDeleteAndSaveStatus(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "people.csv")
@@ -302,17 +383,24 @@ func TestDrawRendersDeleteAndSaveStatus(t *testing.T) {
 		t.Fatalf("Init returned error: %v", err)
 	}
 	defer screen.Fini()
-	screen.SetSize(160, 8)
+	screen.SetSize(320, 8)
 
 	app := New(sh, screen)
 	app.Draw()
 
-	lines := snapshot(screen, 160, 8)
+	lines := snapshot(screen, 320, 8)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"deleted rows 1",
 		"deleted 1 row(s)",
 		"d delete",
+		"F freq",
+		"I describe",
+		"T transpose",
+		"V sheets",
+		"M columns",
+		"O options",
+		"? commands",
 		"S save",
 	} {
 		if !strings.Contains(joined, want) {
@@ -346,6 +434,36 @@ func TestDrawRendersInputPromptAndHiddenColumnsStatus(t *testing.T) {
 	for _, want := range []string{
 		"2/3 column(s)",
 		"Rename column: name",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("screen missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestDrawRendersMetaStackStatus(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(220, 8)
+
+	app := New(sh, screen)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'M', tcell.ModNone))
+	app.Draw()
+
+	lines := snapshot(screen, 220, 8)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"columns:people.csv",
+		"stack 2",
+		"V sheets",
+		"? commands",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("screen missing %q:\n%s", want, joined)

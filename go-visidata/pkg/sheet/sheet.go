@@ -76,6 +76,8 @@ type Sheet struct {
 	Source      string
 	Columns     []Column
 	Rows        []Row
+	MetaKind    string
+	MetaTargets []*Sheet
 	CursorRow   int
 	CursorCol   int
 	Selected    []bool

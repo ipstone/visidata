@@ -23,6 +23,7 @@ type App struct {
 	Sheet      *sheet.Sheet
 	RowOffset  int
 	ColOffset  int
+	stack      []*sheet.Sheet
 	mode       inputMode
 	inputValue []rune
 	colWidths  []int
@@ -32,6 +33,7 @@ func New(sh *sheet.Sheet, screen tcell.Screen) *App {
 	return &App{
 		Screen:    screen,
 		Sheet:     sh,
+		stack:     []*sheet.Sheet{sh},
 		colWidths: columnWidths(sh),
 	}
 }
@@ -96,9 +98,14 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 		a.Sheet.SetCursorRow(0)
 	case tcell.KeyEnd:
 		a.Sheet.SetCursorRow(len(a.Sheet.Rows) - 1)
+	case tcell.KeyEnter:
+		a.activateCurrentRow()
 	case tcell.KeyRune:
 		switch ev.Rune() {
 		case 'q':
+			if a.popSheet() {
+				break
+			}
 			return true
 		case '/':
 			a.beginInput(inputModeSearch, a.Sheet.SearchState.Query)
@@ -142,6 +149,26 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 			}
 		case 'S':
 			a.saveSuggested()
+		case 'F':
+			a.openFrequencySheet()
+		case 'I':
+			a.pushSheet(a.Sheet.DescribeSheet())
+			a.Sheet.Status = fmt.Sprintf("describe %s", a.Sheet.Name)
+		case 'T':
+			a.pushSheet(a.Sheet.TransposeSheet())
+			a.Sheet.Status = fmt.Sprintf("transpose %s", a.Sheet.Name)
+		case 'V':
+			a.pushSheet(a.buildSheetsSheet())
+			a.Sheet.Status = fmt.Sprintf("sheets %s", a.Sheet.Name)
+		case 'M':
+			a.pushSheet(a.Sheet.ColumnsSheet())
+			a.Sheet.Status = fmt.Sprintf("columns %s", a.Sheet.Name)
+		case 'O':
+			a.pushSheet(a.Sheet.OptionsSheet())
+			a.Sheet.Status = fmt.Sprintf("options %s", a.Sheet.Name)
+		case '?':
+			a.pushSheet(a.buildCommandsSheet())
+			a.Sheet.Status = fmt.Sprintf("commands %s", a.Sheet.Name)
 		case '~':
 			a.overrideColumnType(sheet.KindString)
 		case '#':
@@ -177,6 +204,101 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 
 	a.ensureVisible(a.size())
 	return false
+}
+
+func (a *App) pushSheet(sh *sheet.Sheet) {
+	if sh == nil {
+		return
+	}
+	a.stack = append(a.stack, sh)
+	a.Sheet = sh
+	a.RowOffset = 0
+	a.ColOffset = 0
+	a.mode = inputModeNone
+	a.inputValue = nil
+	a.colWidths = columnWidths(sh)
+}
+
+func (a *App) popSheet() bool {
+	if len(a.stack) <= 1 {
+		return false
+	}
+	a.stack = a.stack[:len(a.stack)-1]
+	a.Sheet = a.stack[len(a.stack)-1]
+	a.RowOffset = 0
+	a.ColOffset = 0
+	a.mode = inputModeNone
+	a.inputValue = nil
+	a.colWidths = columnWidths(a.Sheet)
+	a.Sheet.Status = fmt.Sprintf("returned to %s", a.Sheet.Name)
+	return true
+}
+
+func (a *App) openFrequencySheet() {
+	sh, err := a.Sheet.FrequencySheet(a.Sheet.CursorCol)
+	if err != nil {
+		a.Sheet.Status = fmt.Sprintf("frequency failed: %v", err)
+		return
+	}
+	a.pushSheet(sh)
+	a.Sheet.Status = fmt.Sprintf("frequency %s", a.Sheet.Name)
+}
+
+func (a *App) buildSheetsSheet() *sheet.Sheet {
+	targets := append([]*sheet.Sheet(nil), a.stack...)
+	sh := sheet.New("sheets", "", []string{"depth", "name", "rows", "columns", "current"})
+	sh.MetaKind = "sheets"
+	sh.MetaTargets = targets
+	sh.Columns[0].Kind = sheet.KindInt
+	sh.Columns[2].Kind = sheet.KindInt
+	sh.Columns[3].Kind = sheet.KindInt
+	sh.Columns[4].Kind = sheet.KindBool
+
+	for i, target := range targets {
+		current := target == a.Sheet
+		sh.AddRawRow([]string{
+			fmt.Sprintf("%d", i+1),
+			target.Name,
+			fmt.Sprintf("%d", len(target.Rows)),
+			fmt.Sprintf("%d", len(target.Columns)),
+			fmt.Sprintf("%t", current),
+		})
+	}
+
+	return sh
+}
+
+func (a *App) buildCommandsSheet() *sheet.Sheet {
+	sh := sheet.New("commands", "", []string{"keys", "name", "help"})
+	sh.MetaKind = "commands"
+	for _, command := range commandCatalog {
+		sh.AddRawRow([]string{command.Keys, command.Name, command.Help})
+	}
+	return sh
+}
+
+func (a *App) activateCurrentRow() {
+	if a.Sheet.MetaKind != "sheets" {
+		return
+	}
+	if a.Sheet.CursorRow < 0 || a.Sheet.CursorRow >= len(a.Sheet.MetaTargets) {
+		return
+	}
+	target := a.Sheet.MetaTargets[a.Sheet.CursorRow]
+	for i, candidate := range a.stack {
+		if candidate != target {
+			continue
+		}
+		a.stack = a.stack[:i+1]
+		a.Sheet = candidate
+		a.RowOffset = 0
+		a.ColOffset = 0
+		a.mode = inputModeNone
+		a.inputValue = nil
+		a.colWidths = columnWidths(a.Sheet)
+		a.Sheet.Status = fmt.Sprintf("switched to %s", a.Sheet.Name)
+		return
+	}
 }
 
 func (a *App) handleInputKey(ev *tcell.EventKey) bool {
