@@ -78,6 +78,7 @@ type Sheet struct {
 	SortState   SortState
 	SearchState SearchState
 	Clipboard   Clipboard
+	Status      string
 	rowIDs      []int
 	nextRowID   int
 }

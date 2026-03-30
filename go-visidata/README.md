@@ -23,6 +23,7 @@ go run ./cmd/vdgo -- ..
 go run ./cmd/vdgo -- ../tests/without_rowid.db
 go run ./cmd/vdgo -table withrowid -- ../tests/without_rowid.db
 go run ./cmd/vdgo -n 5 -- ../sample_data/a.tsv
+go run ./cmd/vdgo -save /tmp/benchmark.json -- ../sample_data/benchmark.jsonl
 printf '{"name":"Alice","age":30}\n{"name":"Bob","age":40}\n' | go run ./cmd/vdgo -n 2 -- -
 ```
 
@@ -38,8 +39,11 @@ printf '{"name":"Alice","age":30}\n{"name":"Bob","age":40}\n' | go run ./cmd/vdg
 - `s`: toggle current row selection, `t`: select all rows, `u`: clear selection
 - `c`: copy the current cell to the internal clipboard
 - `C`: copy selected rows (or the current row) to the internal clipboard
+- `d`: delete selected rows (or the current row) and copy the deleted data to the clipboard
+- `S` / `Ctrl+S`: save the current sheet to a suggested export path
 
 Use `-n` to keep the existing non-interactive preview mode.
+Use `-save` to export the loaded sheet to a `.csv`, `.tsv`, or `.json` file and exit.
 Use `-filetype fixed` to force the fixed-width loader on plain text files.
 Use `-header 0` to keep the first fixed-width row as data instead of column names.
 Use `-table` to choose a specific SQLite table.

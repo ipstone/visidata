@@ -8,6 +8,65 @@ import (
 	"time"
 )
 
+func (s *Sheet) DeleteSelectedRowsOrCurrent() int {
+	rows := s.selectedRows()
+	if len(rows) == 0 {
+		if s.CursorRow < 0 || s.CursorRow >= len(s.Rows) {
+			return 0
+		}
+		rows = []int{s.CursorRow}
+	}
+	return s.DeleteRows(rows)
+}
+
+func (s *Sheet) DeleteRows(rows []int) int {
+	if len(rows) == 0 || len(s.Rows) == 0 {
+		return 0
+	}
+
+	seen := make(map[int]struct{}, len(rows))
+	filtered := make([]int, 0, len(rows))
+	for _, row := range rows {
+		if row < 0 || row >= len(s.Rows) {
+			continue
+		}
+		if _, ok := seen[row]; ok {
+			continue
+		}
+		seen[row] = struct{}{}
+		filtered = append(filtered, row)
+	}
+	if len(filtered) == 0 {
+		return 0
+	}
+	sort.Ints(filtered)
+	s.copyRows(filtered, "deleted rows")
+
+	deleteSet := make(map[int]struct{}, len(filtered))
+	for _, row := range filtered {
+		deleteSet[row] = struct{}{}
+	}
+
+	newRows := make([]Row, 0, len(s.Rows)-len(filtered))
+	newSelected := make([]bool, 0, len(s.Selected)-len(filtered))
+	newRowIDs := make([]int, 0, len(s.rowIDs)-len(filtered))
+	for i := range s.Rows {
+		if _, ok := deleteSet[i]; ok {
+			continue
+		}
+		newRows = append(newRows, s.Rows[i])
+		newSelected = append(newSelected, false)
+		newRowIDs = append(newRowIDs, s.rowIDs[i])
+	}
+
+	s.Rows = newRows
+	s.Selected = newSelected
+	s.rowIDs = newRowIDs
+	s.refreshSearch()
+	s.clampCursor()
+	return len(filtered)
+}
+
 func (s *Sheet) ToggleSort(columnIndex int, direction SortDirection) {
 	if columnIndex < 0 || columnIndex >= len(s.Columns) {
 		return

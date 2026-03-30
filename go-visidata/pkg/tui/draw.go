@@ -147,12 +147,15 @@ func (a *App) statusLine() string {
 		switch a.Sheet.Clipboard.Kind {
 		case "cell":
 			label = "cell"
-		case "row", "selected rows":
+		case "row", "selected rows", "deleted rows":
 			label = fmt.Sprintf("%s %d", a.Sheet.Clipboard.Kind, a.Sheet.Clipboard.Count)
 		}
 		parts = append(parts, fmt.Sprintf("%s %q", label, clip))
 	}
-	parts = append(parts, "q quit", "/ search", "[ ] sort", "s/t/u select", "c/C copy")
+	if a.Sheet.Status != "" {
+		parts = append(parts, a.Sheet.Status)
+	}
+	parts = append(parts, "q quit", "/ search", "[ ] sort", "s/t/u select", "c/C copy", "d delete", "S save")
 	return strings.Join(parts, "  ")
 }
 

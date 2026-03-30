@@ -40,6 +40,30 @@ func (s *Sheet) CopySelectedRowsOrCurrent() bool {
 	return true
 }
 
+func (s *Sheet) copyRows(rows []int, kind string) bool {
+	if len(rows) == 0 {
+		return false
+	}
+
+	content := make([]string, 0, len(rows))
+	for _, rowIndex := range rows {
+		if rowIndex < 0 || rowIndex >= len(s.Rows) {
+			continue
+		}
+		content = append(content, strings.Join(s.Rows[rowIndex], "\t"))
+	}
+	if len(content) == 0 {
+		return false
+	}
+
+	s.Clipboard = Clipboard{
+		Content: strings.Join(content, "\n"),
+		Kind:    kind,
+		Count:   len(content),
+	}
+	return true
+}
+
 func (s *Sheet) ClipboardPreview(limit int) string {
 	if s.Clipboard.Content == "" {
 		return ""

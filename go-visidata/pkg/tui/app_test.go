@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -119,6 +121,14 @@ func TestHandleKeySortSearchAndSelection(t *testing.T) {
 	if sh.SearchState.CurrentMatch == current {
 		t.Fatal("expected n to advance to the next match")
 	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'd', tcell.ModNone))
+	if len(sh.Rows) != 2 {
+		t.Fatalf("row count after delete = %d, want 2", len(sh.Rows))
+	}
+	if got := sh.Clipboard.Kind; got != "deleted rows" {
+		t.Fatalf("clipboard kind after delete = %q, want deleted rows", got)
+	}
 }
 
 func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
@@ -150,6 +160,8 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 		"sel 1",
 		"cell \"20\"",
 		"c/C copy",
+		"d delete",
+		"S save",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("screen missing %q:\n%s", want, joined)
@@ -181,6 +193,63 @@ func TestDrawRendersCopiedRowsStatus(t *testing.T) {
 	for _, want := range []string{
 		"selected rows 2",
 		`"Alice ⇥ 30 ⏎ Bob ⇥ 20"`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("screen missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestHandleKeySaveSuggestedWritesFile(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "people.tsv")
+	sh := sheet.New(source, source, []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'S', tcell.ModNone))
+
+	savePath := filepath.Join(root, "people.vdgo.tsv")
+	data, err := os.ReadFile(savePath)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if !strings.Contains(string(data), "name\tage") || !strings.Contains(string(data), "Alice\t30") {
+		t.Fatalf("saved file missing expected TSV content:\n%s", string(data))
+	}
+	if !strings.Contains(sh.Status, "saved ") {
+		t.Fatalf("status = %q, want saved message", sh.Status)
+	}
+}
+
+func TestDrawRendersDeleteAndSaveStatus(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "people.csv")
+	sh := sheet.New(source, source, []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+	sh.ToggleSelected(0)
+	sh.DeleteSelectedRowsOrCurrent()
+	sh.Status = "deleted 1 row(s)"
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(160, 8)
+
+	app := New(sh, screen)
+	app.Draw()
+
+	lines := snapshot(screen, 160, 8)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"deleted rows 1",
+		"deleted 1 row(s)",
+		"d delete",
+		"S save",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("screen missing %q:\n%s", want, joined)

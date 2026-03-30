@@ -67,6 +67,8 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 	switch ev.Key() {
 	case tcell.KeyCtrlC, tcell.KeyEscape:
 		return true
+	case tcell.KeyCtrlS:
+		a.saveSuggested()
 	case tcell.KeyUp:
 		a.Sheet.MoveCursorRow(-1)
 	case tcell.KeyDown:
@@ -118,8 +120,18 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 			a.Sheet.ClearSelection()
 		case 'c':
 			a.Sheet.CopyCell(a.Sheet.CursorRow, a.Sheet.CursorCol)
+			a.Sheet.Status = "copied current cell"
 		case 'C':
 			a.Sheet.CopySelectedRowsOrCurrent()
+			a.Sheet.Status = "copied row data"
+		case 'd':
+			count := a.Sheet.DeleteSelectedRowsOrCurrent()
+			if count > 0 {
+				a.colWidths = columnWidths(a.Sheet)
+				a.Sheet.Status = fmt.Sprintf("deleted %d row(s)", count)
+			}
+		case 'S':
+			a.saveSuggested()
 		}
 	}
 
@@ -161,4 +173,13 @@ func (a *App) size() (int, int) {
 		return 80, 24
 	}
 	return a.Screen.Size()
+}
+
+func (a *App) saveSuggested() {
+	path, err := a.Sheet.SaveSuggested()
+	if err != nil {
+		a.Sheet.Status = fmt.Sprintf("save failed: %v", err)
+		return
+	}
+	a.Sheet.Status = fmt.Sprintf("saved %s", path)
 }

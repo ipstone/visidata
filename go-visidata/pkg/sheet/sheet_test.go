@@ -157,3 +157,43 @@ func TestSelectionHelpers(t *testing.T) {
 		t.Fatalf("SelectedCount after ClearSelection = %d, want 0", got)
 	}
 }
+
+func TestDeleteSelectedRowsOrCurrentRemovesRowsAndRefreshesSearch(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"name", "city"})
+	sh.AddRow([]string{"Alice", "Tokyo"})
+	sh.AddRow([]string{"Bob", "Osaka"})
+	sh.AddRow([]string{"Carol", "Kyoto"})
+	sh.Search("o")
+	sh.ToggleSelected(0)
+	sh.ToggleSelected(2)
+
+	if got := sh.DeleteSelectedRowsOrCurrent(); got != 2 {
+		t.Fatalf("DeleteSelectedRowsOrCurrent = %d, want 2", got)
+	}
+	if len(sh.Rows) != 1 || sh.Cell(0, 0) != "Bob" {
+		t.Fatalf("rows after delete = %#v, want only Bob", sh.Rows)
+	}
+	if got := sh.Clipboard.Content; got != "Alice\tTokyo\nCarol\tKyoto" {
+		t.Fatalf("clipboard after delete = %q, want deleted rows", got)
+	}
+	if sh.SearchState.Query != "o" || len(sh.SearchState.Matches) != 2 {
+		t.Fatalf("search state after delete = %+v, want refreshed matches for Bob only", sh.SearchState)
+	}
+}
+
+func TestDeleteSelectedRowsOrCurrentFallsBackToCursorRow(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"name"})
+	sh.AddRow([]string{"Alice"})
+	sh.AddRow([]string{"Bob"})
+	sh.SetCursorRow(1)
+
+	if got := sh.DeleteSelectedRowsOrCurrent(); got != 1 {
+		t.Fatalf("DeleteSelectedRowsOrCurrent = %d, want 1", got)
+	}
+	if len(sh.Rows) != 1 || sh.Cell(0, 0) != "Alice" {
+		t.Fatalf("rows after delete = %#v, want only Alice", sh.Rows)
+	}
+	if sh.CursorRow != 0 {
+		t.Fatalf("CursorRow after delete = %d, want 0", sh.CursorRow)
+	}
+}

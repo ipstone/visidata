@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -184,5 +185,36 @@ func TestVDGOPreviewsDirectory(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestVDGOSavesExportFile(t *testing.T) {
+	root := t.TempDir()
+	savePath := filepath.Join(root, "people.json")
+
+	cmd := exec.Command("go", "run", "./cmd/vdgo", "-save", savePath, "../sample_data/benchmark.jsonl")
+	cmd.Dir = ".."
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go run returned error: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "saved "+savePath) {
+		t.Fatalf("output missing saved path:\n%s", string(out))
+	}
+
+	data, err := os.ReadFile(savePath)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(data, &rows); err != nil {
+		t.Fatalf("Unmarshal returned error: %v\n%s", err, string(data))
+	}
+	if len(rows) == 0 {
+		t.Fatal("expected exported rows")
+	}
+	if _, ok := rows[0]["Customer"]; !ok {
+		t.Fatalf("export missing Customer field: %#v", rows[0])
 	}
 }
