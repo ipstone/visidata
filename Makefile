@@ -1,7 +1,7 @@
 .PHONY: help \
        install install-dev install-test install-all \
        test test-all test-vgit test-vdsql \
-       build man zsh-completion docker \
+       build man zsh-completion docker go-build go-test \
        setup-hooks setup-vscode lint \
        diff-test clean
 
@@ -18,6 +18,8 @@ help:
 	@echo "Build:"
 	@echo "  make man               generate man pages (requires soelim, preconv, aha)"
 	@echo "  make zsh-completion    generate zsh completion script"
+	@echo "  make go-build          build the experimental Go VisiData binary"
+	@echo "  make go-test           run tests for the experimental Go module"
 	@echo "  make docker            build docker images"
 	@echo ""
 	@echo "Setup:"
@@ -64,6 +66,12 @@ zsh-completion:
 
 docker:
 	dev/build-container
+
+go-build:
+	cd go-visidata && go build -o /tmp/vdgo ./cmd/vdgo
+
+go-test:
+	cd go-visidata && go test ./...
 
 # Setup
 

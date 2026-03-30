@@ -1,0 +1,285 @@
+package tui
+
+import (
+	"fmt"
+
+	"github.com/gdamore/tcell/v2"
+	"github.com/ipstone/visidata/go-visidata/pkg/sheet"
+)
+
+type inputMode string
+
+const (
+	inputModeNone          inputMode = ""
+	inputModeSearch        inputMode = "search"
+	inputModeRename        inputMode = "rename"
+	inputModeResize        inputMode = "resize"
+	inputModeRegexSelect   inputMode = "regex-select"
+	inputModeRegexUnselect inputMode = "regex-unselect"
+)
+
+type App struct {
+	Screen     tcell.Screen
+	Sheet      *sheet.Sheet
+	RowOffset  int
+	ColOffset  int
+	mode       inputMode
+	inputValue []rune
+	colWidths  []int
+}
+
+func New(sh *sheet.Sheet, screen tcell.Screen) *App {
+	return &App{
+		Screen:    screen,
+		Sheet:     sh,
+		colWidths: columnWidths(sh),
+	}
+}
+
+func Run(sh *sheet.Sheet) error {
+	screen, err := tcell.NewScreen()
+	if err != nil {
+		return fmt.Errorf("create screen: %w", err)
+	}
+
+	app := New(sh, screen)
+	return app.Run()
+}
+
+func (a *App) Run() error {
+	if err := a.Screen.Init(); err != nil {
+		return fmt.Errorf("init screen: %w", err)
+	}
+	defer a.Screen.Fini()
+
+	a.Screen.Clear()
+	for {
+		a.Draw()
+		ev := a.Screen.PollEvent()
+		switch event := ev.(type) {
+		case *tcell.EventResize:
+			a.Screen.Sync()
+		case *tcell.EventKey:
+			shouldQuit := a.HandleKey(event)
+			if shouldQuit {
+				return nil
+			}
+		}
+	}
+}
+
+func (a *App) HandleKey(ev *tcell.EventKey) bool {
+	if a.mode != inputModeNone {
+		return a.handleInputKey(ev)
+	}
+
+	pageSize := a.pageSize()
+
+	switch ev.Key() {
+	case tcell.KeyCtrlC, tcell.KeyEscape:
+		return true
+	case tcell.KeyCtrlS:
+		a.saveSuggested()
+	case tcell.KeyUp:
+		a.Sheet.MoveCursorRow(-1)
+	case tcell.KeyDown:
+		a.Sheet.MoveCursorRow(1)
+	case tcell.KeyLeft:
+		a.Sheet.MoveCursorCol(-1)
+	case tcell.KeyRight:
+		a.Sheet.MoveCursorCol(1)
+	case tcell.KeyPgUp:
+		a.Sheet.MoveCursorRow(-pageSize)
+	case tcell.KeyPgDn:
+		a.Sheet.MoveCursorRow(pageSize)
+	case tcell.KeyHome:
+		a.Sheet.SetCursorRow(0)
+	case tcell.KeyEnd:
+		a.Sheet.SetCursorRow(len(a.Sheet.Rows) - 1)
+	case tcell.KeyRune:
+		switch ev.Rune() {
+		case 'q':
+			return true
+		case '/':
+			a.beginInput(inputModeSearch, a.Sheet.SearchState.Query)
+		case 'h':
+			a.Sheet.MoveCursorCol(-1)
+		case 'j':
+			a.Sheet.MoveCursorRow(1)
+		case 'k':
+			a.Sheet.MoveCursorRow(-1)
+		case 'l':
+			a.Sheet.MoveCursorCol(1)
+		case 'g':
+			a.Sheet.SetCursorRow(0)
+		case 'G':
+			a.Sheet.SetCursorRow(len(a.Sheet.Rows) - 1)
+		case '[':
+			a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortAsc)
+		case ']':
+			a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortDesc)
+		case 'n':
+			a.Sheet.NextMatch(1)
+		case 'N':
+			a.Sheet.NextMatch(-1)
+		case 's':
+			a.Sheet.ToggleSelected(a.Sheet.CursorRow)
+		case 't':
+			a.Sheet.SelectAll()
+		case 'u':
+			a.Sheet.ClearSelection()
+		case 'c':
+			a.Sheet.CopyCell(a.Sheet.CursorRow, a.Sheet.CursorCol)
+			a.Sheet.Status = "copied current cell"
+		case 'C':
+			a.Sheet.CopySelectedRowsOrCurrent()
+			a.Sheet.Status = "copied row data"
+		case 'd':
+			count := a.Sheet.DeleteSelectedRowsOrCurrent()
+			if count > 0 {
+				a.colWidths = columnWidths(a.Sheet)
+				a.Sheet.Status = fmt.Sprintf("deleted %d row(s)", count)
+			}
+		case 'S':
+			a.saveSuggested()
+		case '~':
+			a.overrideColumnType(sheet.KindString)
+		case '#':
+			a.overrideColumnType(sheet.KindInt)
+		case '%':
+			a.overrideColumnType(sheet.KindFloat)
+		case '$':
+			a.overrideColumnType(sheet.KindCurrency)
+		case '@':
+			a.overrideColumnType(sheet.KindDate)
+		case '-':
+			name := a.Sheet.Columns[a.Sheet.CursorCol].Name
+			if err := a.Sheet.ToggleHidden(a.Sheet.CursorCol); err != nil {
+				a.Sheet.Status = fmt.Sprintf("hide failed: %v", err)
+			} else {
+				a.colWidths = columnWidths(a.Sheet)
+				a.Sheet.Status = fmt.Sprintf("toggled hidden for %s", name)
+			}
+		case 'H':
+			count := a.Sheet.ShowAllColumns()
+			a.colWidths = columnWidths(a.Sheet)
+			a.Sheet.Status = fmt.Sprintf("revealed %d column(s)", count)
+		case '^':
+			a.beginInput(inputModeRename, "")
+		case '_':
+			a.beginInput(inputModeResize, "")
+		case '|':
+			a.beginInput(inputModeRegexSelect, "")
+		case '\\':
+			a.beginInput(inputModeRegexUnselect, "")
+		}
+	}
+
+	a.ensureVisible(a.size())
+	return false
+}
+
+func (a *App) handleInputKey(ev *tcell.EventKey) bool {
+	switch ev.Key() {
+	case tcell.KeyEscape:
+		if a.mode == inputModeSearch {
+			a.Sheet.ClearSearch()
+		}
+		a.mode = inputModeNone
+		a.inputValue = nil
+	case tcell.KeyEnter:
+		a.commitInput()
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		if len(a.inputValue) > 0 {
+			a.inputValue = a.inputValue[:len(a.inputValue)-1]
+		}
+	case tcell.KeyRune:
+		a.inputValue = append(a.inputValue, ev.Rune())
+	}
+
+	a.ensureVisible(a.size())
+	return false
+}
+
+func (a *App) pageSize() int {
+	_, height := a.size()
+	if rows := height - 4; rows > 0 {
+		return rows
+	}
+	return 1
+}
+
+func (a *App) size() (int, int) {
+	if a.Screen == nil {
+		return 80, 24
+	}
+	return a.Screen.Size()
+}
+
+func (a *App) saveSuggested() {
+	path, err := a.Sheet.SaveSuggested()
+	if err != nil {
+		a.Sheet.Status = fmt.Sprintf("save failed: %v", err)
+		return
+	}
+	a.Sheet.Status = fmt.Sprintf("saved %s", path)
+}
+
+func (a *App) beginInput(mode inputMode, initial string) {
+	a.mode = mode
+	a.inputValue = []rune(initial)
+}
+
+func (a *App) commitInput() {
+	value := string(a.inputValue)
+	mode := a.mode
+	a.mode = inputModeNone
+	a.inputValue = nil
+
+	switch mode {
+	case inputModeSearch:
+		a.Sheet.Search(value)
+	case inputModeRename:
+		if err := a.Sheet.RenameColumn(a.Sheet.CursorCol, value); err != nil {
+			a.Sheet.Status = fmt.Sprintf("rename failed: %v", err)
+			return
+		}
+		a.colWidths = columnWidths(a.Sheet)
+		a.Sheet.Status = fmt.Sprintf("renamed column to %s", a.Sheet.Columns[a.Sheet.CursorCol].Name)
+	case inputModeResize:
+		width, err := sheet.ParseWidth(value)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("resize failed: %v", err)
+			return
+		}
+		if err := a.Sheet.SetColumnWidth(a.Sheet.CursorCol, width); err != nil {
+			a.Sheet.Status = fmt.Sprintf("resize failed: %v", err)
+			return
+		}
+		a.colWidths = columnWidths(a.Sheet)
+		a.Sheet.Status = fmt.Sprintf("set width %d for %s", width, a.Sheet.Columns[a.Sheet.CursorCol].Name)
+	case inputModeRegexSelect:
+		count, err := a.Sheet.SelectByRegex(a.Sheet.CursorCol, value, false)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("select failed: %v", err)
+			return
+		}
+		a.Sheet.Status = fmt.Sprintf("selected %d row(s)", count)
+	case inputModeRegexUnselect:
+		count, err := a.Sheet.UnselectByRegex(a.Sheet.CursorCol, value, false)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("unselect failed: %v", err)
+			return
+		}
+		a.Sheet.Status = fmt.Sprintf("unselected %d row(s)", count)
+	}
+}
+
+func (a *App) overrideColumnType(kind sheet.ValueKind) {
+	if err := a.Sheet.OverrideColumnKind(a.Sheet.CursorCol, kind); err != nil {
+		a.Sheet.Status = fmt.Sprintf("type override failed: %v", err)
+		return
+	}
+	a.colWidths = columnWidths(a.Sheet)
+	a.Sheet.Status = fmt.Sprintf("column %s type set to %s", a.Sheet.Columns[a.Sheet.CursorCol].Name, kind)
+}
