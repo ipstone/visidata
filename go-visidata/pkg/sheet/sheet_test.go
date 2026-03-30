@@ -80,3 +80,80 @@ func TestCellReturnsEmptyOutsideBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestToggleSortAndClearSort(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+	sh.AddRow([]string{"Carol", "10"})
+	sh.InferColumnKinds()
+
+	sh.ToggleSelected(1)
+	sh.ToggleSort(1, SortAsc)
+	if got := sh.Cell(0, 0); got != "Carol" {
+		t.Fatalf("first row after asc sort = %q, want Carol", got)
+	}
+	if !sh.IsSelected(1) || sh.Cell(1, 0) != "Bob" {
+		t.Fatalf("expected selected row to move with sorted data, got row %q selected=%v", sh.Cell(1, 0), sh.IsSelected(1))
+	}
+
+	sh.ToggleSort(1, SortDesc)
+	if got := sh.Cell(0, 0); got != "Alice" {
+		t.Fatalf("first row after desc sort = %q, want Alice", got)
+	}
+
+	sh.ClearSort()
+	if got := sh.Cell(0, 0); got != "Alice" {
+		t.Fatalf("first row after clear sort = %q, want Alice", got)
+	}
+	if sh.SortState.Direction != SortNone {
+		t.Fatalf("sort state = %+v, want cleared", sh.SortState)
+	}
+}
+
+func TestSearchAndNextMatch(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"name", "city"})
+	sh.AddRow([]string{"Alice", "Tokyo"})
+	sh.AddRow([]string{"Bob", "Osaka"})
+	sh.AddRow([]string{"Carol", "Kyoto"})
+	sh.InferColumnKinds()
+
+	if got := sh.Search("o"); got != 5 {
+		t.Fatalf("Search returned %d matches, want 5", got)
+	}
+	if sh.CursorRow != 0 || sh.CursorCol != 1 {
+		t.Fatalf("cursor after search = (%d,%d), want (0,1)", sh.CursorRow, sh.CursorCol)
+	}
+	if !sh.NextMatch(1) || sh.CursorRow != 1 {
+		t.Fatalf("next match did not advance to row 1, got (%d,%d)", sh.CursorRow, sh.CursorCol)
+	}
+	if !sh.IsSearchMatch(2, 1) {
+		t.Fatal("expected Kyoto cell to be marked as a search match")
+	}
+
+	sh.ClearSearch()
+	if sh.SearchState.Query != "" || len(sh.SearchState.Matches) != 0 {
+		t.Fatalf("search state = %+v, want cleared", sh.SearchState)
+	}
+}
+
+func TestSelectionHelpers(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"name"})
+	sh.AddRow([]string{"Alice"})
+	sh.AddRow([]string{"Bob"})
+
+	sh.ToggleSelected(0)
+	if got := sh.SelectedCount(); got != 1 {
+		t.Fatalf("SelectedCount = %d, want 1", got)
+	}
+
+	sh.SelectAll()
+	if got := sh.SelectedCount(); got != 2 {
+		t.Fatalf("SelectedCount after SelectAll = %d, want 2", got)
+	}
+
+	sh.ClearSelection()
+	if got := sh.SelectedCount(); got != 0 {
+		t.Fatalf("SelectedCount after ClearSelection = %d, want 0", got)
+	}
+}

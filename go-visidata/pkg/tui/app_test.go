@@ -71,6 +71,79 @@ func TestDrawRendersStatusAndData(t *testing.T) {
 	}
 }
 
+func TestHandleKeySortSearchAndSelection(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
+	for _, row := range [][]string{
+		{"Alice", "30", "Tokyo"},
+		{"Bob", "20", "Osaka"},
+		{"Carol", "10", "Kyoto"},
+	} {
+		sh.AddRow(row)
+	}
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	sh.SetCursorCol(1)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '[', tcell.ModNone))
+	if got := sh.Cell(0, 0); got != "Carol" {
+		t.Fatalf("first row after sort = %q, want Carol", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 's', tcell.ModNone))
+	if got := sh.SelectedCount(); got != 1 {
+		t.Fatalf("SelectedCount = %d, want 1", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '/', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'o', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if sh.SearchState.Query != "o" {
+		t.Fatalf("search query = %q, want %q", sh.SearchState.Query, "o")
+	}
+	if len(sh.SearchState.Matches) == 0 {
+		t.Fatal("expected search matches")
+	}
+
+	current := sh.SearchState.CurrentMatch
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'n', tcell.ModNone))
+	if sh.SearchState.CurrentMatch == current {
+		t.Fatal("expected n to advance to the next match")
+	}
+}
+
+func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+	sh.InferColumnKinds()
+	sh.ToggleSelected(1)
+	sh.ToggleSort(1, sheet.SortAsc)
+	sh.Search("o")
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(80, 8)
+
+	app := New(sh, screen)
+	app.Draw()
+
+	lines := snapshot(screen, 80, 8)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"* ",
+		"sort age↑",
+		"search \"o\"",
+		"sel 1",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("screen missing %q:\n%s", want, joined)
+		}
+	}
+}
+
 func snapshot(screen tcell.SimulationScreen, width, height int) []string {
 	lines := make([]string, 0, height)
 	for y := 0; y < height; y++ {

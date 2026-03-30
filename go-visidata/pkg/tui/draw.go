@@ -9,6 +9,8 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
+const rowPrefixWidth = 2
+
 func (a *App) Draw() {
 	if a.Screen == nil {
 		return
@@ -65,14 +67,25 @@ func (a *App) Draw() {
 }
 
 func (a *App) drawRow(y, width int, cols []int, valueFn func(col int) string, baseStyle tcell.Style, cursorRow int) {
-	x := 0
+	prefix := "  "
+	if cursorRow >= 0 && a.Sheet.IsSelected(cursorRow) {
+		prefix = "* "
+	}
+
+	x := a.drawText(0, y, rowPrefixWidth, prefix, baseStyle)
 	for i, col := range cols {
 		if i > 0 {
 			x = a.drawText(x, y, width-x, " | ", baseStyle)
 		}
 		style := baseStyle
+		if cursorRow >= 0 && a.Sheet.IsSelected(cursorRow) {
+			style = style.Foreground(tcell.ColorLightGreen)
+		}
+		if cursorRow >= 0 && a.Sheet.IsSearchMatch(cursorRow, col) {
+			style = style.Background(tcell.ColorDarkCyan)
+		}
 		if cursorRow == a.Sheet.CursorRow && col == a.Sheet.CursorCol {
-			style = style.Reverse(true)
+			style = style.Reverse(true).Bold(true)
 		}
 		x = a.drawText(x, y, width-x, padRight(valueFn(col), a.colWidths[col]), style)
 		if x >= width {
@@ -108,14 +121,28 @@ func (a *App) drawText(x, y, width int, text string, style tcell.Style) int {
 }
 
 func (a *App) statusLine() string {
-	return fmt.Sprintf(
-		"%s  row %d/%d  col %d/%d  q quit  arrows/hjkl move",
+	if a.searchMode {
+		return fmt.Sprintf("Search: %s", string(a.searchQuery))
+	}
+
+	parts := []string{
 		a.Sheet.Name,
-		min(a.Sheet.CursorRow+1, len(a.Sheet.Rows)),
-		len(a.Sheet.Rows),
-		min(a.Sheet.CursorCol+1, len(a.Sheet.Columns)),
-		len(a.Sheet.Columns),
-	)
+		fmt.Sprintf("row %d/%d", min(a.Sheet.CursorRow+1, len(a.Sheet.Rows)), len(a.Sheet.Rows)),
+		fmt.Sprintf("col %d/%d", min(a.Sheet.CursorCol+1, len(a.Sheet.Columns)), len(a.Sheet.Columns)),
+		fmt.Sprintf("sel %d", a.Sheet.SelectedCount()),
+	}
+	if a.Sheet.SortState.Direction != sheet.SortNone && a.Sheet.SortState.ColumnIndex < len(a.Sheet.Columns) {
+		dir := "↑"
+		if a.Sheet.SortState.Direction == sheet.SortDesc {
+			dir = "↓"
+		}
+		parts = append(parts, fmt.Sprintf("sort %s%s", a.Sheet.Columns[a.Sheet.SortState.ColumnIndex].Name, dir))
+	}
+	if query := a.Sheet.SearchState.Query; query != "" {
+		parts = append(parts, fmt.Sprintf("search %q %d/%d", query, min(a.Sheet.SearchState.CurrentMatch+1, len(a.Sheet.SearchState.Matches)), len(a.Sheet.SearchState.Matches)))
+	}
+	parts = append(parts, "q quit", "/ search", "[ ] sort", "s/t/u select")
+	return strings.Join(parts, "  ")
 }
 
 func (a *App) visibleColumns(width int) []int {
@@ -130,7 +157,7 @@ func (a *App) visibleColumns(width int) []int {
 		if len(cols) > 0 {
 			next += 3
 		}
-		if len(cols) > 0 && used+next > width {
+		if len(cols) > 0 && used+next > max(0, width-rowPrefixWidth) {
 			break
 		}
 		used += next

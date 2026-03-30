@@ -15,9 +15,18 @@ const (
 	formatDelimited format = "delimited"
 	formatJSON      format = "json"
 	formatJSONL     format = "jsonl"
+	formatSQLite    format = "sqlite"
 )
 
+type Options struct {
+	Table string
+}
+
 func Load(path string) (*sheet.Sheet, error) {
+	return LoadWithOptions(path, Options{})
+}
+
+func LoadWithOptions(path string, opts Options) (*sheet.Sheet, error) {
 	if path == "" {
 		return nil, fmt.Errorf("no input path provided")
 	}
@@ -34,6 +43,8 @@ func Load(path string) (*sheet.Sheet, error) {
 	}
 
 	switch fileFormat {
+	case formatSQLite:
+		return loadSQLite(path, opts)
 	case formatJSON, formatJSONL:
 		return loadJSON(path, reader, fileFormat)
 	default:
@@ -49,6 +60,8 @@ func detectFormat(path string, reader *os.File) (format, error) {
 		return formatJSONL, nil
 	case ".csv", ".tsv", ".psv":
 		return formatDelimited, nil
+	case ".db", ".sqlite", ".sqlite3":
+		return formatSQLite, nil
 	}
 
 	line, err := firstDataLine(reader)

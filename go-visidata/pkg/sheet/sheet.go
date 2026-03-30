@@ -18,6 +18,18 @@ const (
 	KindDate   ValueKind = "date"
 )
 
+var dateLayouts = []string{
+	time.RFC3339,
+	"2006-01-02",
+	"2006-01-02 15:04:05",
+	"1/2/2006",
+	"1/2/2006 3:04PM",
+	"1/2/2006 3:04pm",
+	"1/2/2006 3:04p",
+	"1/2/2006 3:04 PM",
+	"1/2/2006 3:04 pm",
+}
+
 type Column struct {
 	Name string
 	Kind ValueKind
@@ -25,13 +37,42 @@ type Column struct {
 
 type Row []string
 
+type SortDirection string
+
+const (
+	SortNone SortDirection = ""
+	SortAsc  SortDirection = "asc"
+	SortDesc SortDirection = "desc"
+)
+
+type SortState struct {
+	ColumnIndex int
+	Direction   SortDirection
+}
+
+type Position struct {
+	Row int
+	Col int
+}
+
+type SearchState struct {
+	Query        string
+	Matches      []Position
+	CurrentMatch int
+}
+
 type Sheet struct {
-	Name      string
-	Source    string
-	Columns   []Column
-	Rows      []Row
-	CursorRow int
-	CursorCol int
+	Name        string
+	Source      string
+	Columns     []Column
+	Rows        []Row
+	CursorRow   int
+	CursorCol   int
+	Selected    []bool
+	SortState   SortState
+	SearchState SearchState
+	rowIDs      []int
+	nextRowID   int
 }
 
 func New(name, source string, headers []string) *Sheet {
@@ -69,6 +110,9 @@ func (s *Sheet) AddRow(values []string) {
 	}
 
 	s.Rows = append(s.Rows, row)
+	s.Selected = append(s.Selected, false)
+	s.rowIDs = append(s.rowIDs, s.nextRowID)
+	s.nextRowID++
 }
 
 func (s *Sheet) InferColumnKinds() {
@@ -135,6 +179,39 @@ func (s *Sheet) clampCursor() {
 	}
 }
 
+func (s *Sheet) IsSelected(row int) bool {
+	return row >= 0 && row < len(s.Selected) && s.Selected[row]
+}
+
+func (s *Sheet) ToggleSelected(row int) {
+	if row < 0 || row >= len(s.Selected) {
+		return
+	}
+	s.Selected[row] = !s.Selected[row]
+}
+
+func (s *Sheet) SelectAll() {
+	for i := range s.Selected {
+		s.Selected[i] = true
+	}
+}
+
+func (s *Sheet) ClearSelection() {
+	for i := range s.Selected {
+		s.Selected[i] = false
+	}
+}
+
+func (s *Sheet) SelectedCount() int {
+	count := 0
+	for _, selected := range s.Selected {
+		if selected {
+			count++
+		}
+	}
+	return count
+}
+
 func inferKindForColumn(rows []Row, columnIndex int) ValueKind {
 	seen := 0
 	allInt := true
@@ -197,21 +274,9 @@ func normalizeNumber(value string) string {
 func looksLikeDate(value string) bool {
 	// These layouts cover the simple ISO and month/day formats seen in the
 	// existing VisiData sample data fixtures.
-	layouts := []string{
-		time.RFC3339,
-		"2006-01-02",
-		"2006-01-02 15:04:05",
-		// Go layouts are case-sensitive, so these variants match fixture suffixes
-		// like `PM`, `pm`, and the short `p`.
-		"1/2/2006",
-		"1/2/2006 3:04PM",
-		"1/2/2006 3:04pm",
-		"1/2/2006 3:04p",
-		"1/2/2006 3:04 PM",
-		"1/2/2006 3:04 pm",
-	}
-
-	for _, layout := range layouts {
+	// Go layouts are case-sensitive, so the list includes explicit variants for
+	// fixture suffixes `PM`, `pm`, and the short `p`.
+	for _, layout := range dateLayouts {
 		if _, err := time.Parse(layout, value); err == nil {
 			return true
 		}

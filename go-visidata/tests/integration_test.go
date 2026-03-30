@@ -73,3 +73,40 @@ func TestVDGOPreviewsJSONFromStdin(t *testing.T) {
 		}
 	}
 }
+
+func TestVDGOPreviewsSQLiteFixture(t *testing.T) {
+	cmd := exec.Command("go", "run", "./cmd/vdgo", "-n", "2", "../tests/without_rowid.db")
+	cmd.Dir = ".."
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go run returned error: %v\n%s", err, string(out))
+	}
+
+	output := string(out)
+	for _, want := range []string{
+		"without_rowid.db:withoutrowid: 2 row(s) x 2 column(s)",
+		"id <int>",
+		"datum <string>",
+		"abc",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestVDGOPreviewsSpecificSQLiteTable(t *testing.T) {
+	cmd := exec.Command("go", "run", "./cmd/vdgo", "-n", "2", "-table", "withrowid", "../tests/without_rowid.db")
+	cmd.Dir = ".."
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go run returned error: %v\n%s", err, string(out))
+	}
+
+	output := string(out)
+	if !strings.Contains(output, "without_rowid.db:withrowid") {
+		t.Fatalf("output missing specific sqlite table name:\n%s", output)
+	}
+}

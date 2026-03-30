@@ -8,11 +8,13 @@ import (
 )
 
 type App struct {
-	Screen    tcell.Screen
-	Sheet     *sheet.Sheet
-	RowOffset int
-	ColOffset int
-	colWidths []int
+	Screen      tcell.Screen
+	Sheet       *sheet.Sheet
+	RowOffset   int
+	ColOffset   int
+	searchMode  bool
+	searchQuery []rune
+	colWidths   []int
 }
 
 func New(sh *sheet.Sheet, screen tcell.Screen) *App {
@@ -56,6 +58,10 @@ func (a *App) Run() error {
 }
 
 func (a *App) HandleKey(ev *tcell.EventKey) bool {
+	if a.searchMode {
+		return a.handleSearchKey(ev)
+	}
+
 	pageSize := a.pageSize()
 
 	switch ev.Key() {
@@ -81,6 +87,9 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 		switch ev.Rune() {
 		case 'q':
 			return true
+		case '/':
+			a.searchMode = true
+			a.searchQuery = []rune(a.Sheet.SearchState.Query)
 		case 'h':
 			a.Sheet.MoveCursorCol(-1)
 		case 'j':
@@ -93,7 +102,42 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 			a.Sheet.SetCursorRow(0)
 		case 'G':
 			a.Sheet.SetCursorRow(len(a.Sheet.Rows) - 1)
+		case '[':
+			a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortAsc)
+		case ']':
+			a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortDesc)
+		case 'n':
+			a.Sheet.NextMatch(1)
+		case 'N':
+			a.Sheet.NextMatch(-1)
+		case 's':
+			a.Sheet.ToggleSelected(a.Sheet.CursorRow)
+		case 't':
+			a.Sheet.SelectAll()
+		case 'u':
+			a.Sheet.ClearSelection()
 		}
+	}
+
+	a.ensureVisible(a.size())
+	return false
+}
+
+func (a *App) handleSearchKey(ev *tcell.EventKey) bool {
+	switch ev.Key() {
+	case tcell.KeyEscape:
+		a.searchMode = false
+		a.searchQuery = nil
+		a.Sheet.ClearSearch()
+	case tcell.KeyEnter:
+		a.searchMode = false
+		a.Sheet.Search(string(a.searchQuery))
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		if len(a.searchQuery) > 0 {
+			a.searchQuery = a.searchQuery[:len(a.searchQuery)-1]
+		}
+	case tcell.KeyRune:
+		a.searchQuery = append(a.searchQuery, ev.Rune())
 	}
 
 	a.ensureVisible(a.size())

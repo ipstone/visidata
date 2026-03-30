@@ -12,7 +12,9 @@ import (
 
 func main() {
 	var limit int
+	var table string
 	flag.IntVar(&limit, "n", 0, "number of rows to preview instead of launching the interactive viewer")
+	flag.StringVar(&table, "table", "", "table name to load from a SQLite database")
 	flag.Parse()
 
 	if flag.NArg() != 1 {
@@ -20,7 +22,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	sh, err := loader.Load(flag.Arg(0))
+	sh, err := loader.LoadWithOptions(flag.Arg(0), loader.Options{Table: table})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "vdgo: %v\n", err)
 		os.Exit(1)
