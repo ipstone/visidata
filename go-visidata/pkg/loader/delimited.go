@@ -12,17 +12,11 @@ import (
 	"github.com/ipstone/visidata/go-visidata/pkg/sheet"
 )
 
-func Load(path string) (*sheet.Sheet, error) {
+func loadDelimited(path string, reader *os.File) (*sheet.Sheet, error) {
 	sourceName := path
 	if path == "" {
 		return nil, fmt.Errorf("no input path provided")
 	}
-
-	reader, closeFn, err := openReader(path)
-	if err != nil {
-		return nil, err
-	}
-	defer closeFn()
 
 	delimiter, err := detectDelimiter(path, reader)
 	if err != nil {
@@ -62,36 +56,6 @@ func Load(path string) (*sheet.Sheet, error) {
 
 	sh.InferColumnKinds()
 	return sh, nil
-}
-
-func openReader(path string) (*os.File, func() error, error) {
-	if path == "-" {
-		f, err := os.CreateTemp("", "vdgo-stdin-*")
-		if err != nil {
-			return nil, nil, err
-		}
-		if _, err := io.Copy(f, os.Stdin); err != nil {
-			f.Close()
-			os.Remove(f.Name())
-			return nil, nil, err
-		}
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			f.Close()
-			os.Remove(f.Name())
-			return nil, nil, err
-		}
-		return f, func() error {
-			name := f.Name()
-			_ = f.Close()
-			return os.Remove(name)
-		}, nil
-	}
-
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	return f, f.Close, nil
 }
 
 func detectDelimiter(path string, f *os.File) (rune, error) {
