@@ -7,11 +7,12 @@ import (
 
 	"github.com/ipstone/visidata/go-visidata/pkg/display"
 	"github.com/ipstone/visidata/go-visidata/pkg/loader"
+	"github.com/ipstone/visidata/go-visidata/pkg/tui"
 )
 
 func main() {
 	var limit int
-	flag.IntVar(&limit, "n", 10, "number of rows to preview")
+	flag.IntVar(&limit, "n", 0, "number of rows to preview instead of launching the interactive viewer")
 	flag.Parse()
 
 	if flag.NArg() != 1 {
@@ -25,5 +26,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Print(display.RenderPreview(sh, limit))
+	if limit > 0 {
+		fmt.Print(display.RenderPreview(sh, limit))
+		return
+	}
+
+	if err := tui.Run(sh); err != nil {
+		fmt.Fprintf(os.Stderr, "vdgo: %v\n", err)
+		os.Exit(1)
+	}
 }

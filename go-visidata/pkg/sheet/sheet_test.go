@@ -43,3 +43,40 @@ func TestLooksLikeDate(t *testing.T) {
 		}
 	}
 }
+
+func TestCursorMovementClampsToSheetBounds(t *testing.T) {
+	sh := New("data.csv", "/tmp/data.csv", []string{"a", "b"})
+	sh.AddRow([]string{"1", "2"})
+	sh.AddRow([]string{"3", "4"})
+
+	sh.MoveCursorRow(10)
+	sh.MoveCursorCol(10)
+	if sh.CursorRow != 1 || sh.CursorCol != 1 {
+		t.Fatalf("cursor = (%d,%d), want (1,1)", sh.CursorRow, sh.CursorCol)
+	}
+
+	sh.MoveCursorRow(-10)
+	sh.MoveCursorCol(-10)
+	if sh.CursorRow != 0 || sh.CursorCol != 0 {
+		t.Fatalf("cursor = (%d,%d), want (0,0)", sh.CursorRow, sh.CursorCol)
+	}
+}
+
+func TestCellReturnsEmptyOutsideBounds(t *testing.T) {
+	sh := New("data.csv", "/tmp/data.csv", []string{"a"})
+	sh.AddRow([]string{"1"})
+
+	for _, tc := range []struct {
+		row, col int
+		want     string
+	}{
+		{row: 0, col: 0, want: "1"},
+		{row: -1, col: 0, want: ""},
+		{row: 0, col: 1, want: ""},
+		{row: 1, col: 0, want: ""},
+	} {
+		if got := sh.Cell(tc.row, tc.col); got != tc.want {
+			t.Fatalf("Cell(%d,%d) = %q, want %q", tc.row, tc.col, got, tc.want)
+		}
+	}
+}
