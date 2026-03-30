@@ -97,6 +97,14 @@ func baseName(name string) string {
 }
 
 func (s *Sheet) AddRow(values []string) {
+	s.addRow(values, true)
+}
+
+func (s *Sheet) AddRawRow(values []string) {
+	s.addRow(values, false)
+}
+
+func (s *Sheet) addRow(values []string, trim bool) {
 	row := make(Row, len(s.Columns))
 	copy(row, values)
 	for len(row) < len(s.Columns) {
@@ -105,8 +113,10 @@ func (s *Sheet) AddRow(values []string) {
 	if len(row) > len(s.Columns) {
 		row = row[:len(s.Columns)]
 	}
-	for i := range row {
-		row[i] = strings.TrimSpace(row[i])
+	if trim {
+		for i := range row {
+			row[i] = strings.TrimSpace(row[i])
+		}
 	}
 
 	s.Rows = append(s.Rows, row)

@@ -13,22 +13,32 @@ type format string
 
 const (
 	formatDelimited format = "delimited"
+	formatDir       format = "dir"
+	formatFixed     format = "fixed"
 	formatJSON      format = "json"
 	formatJSONL     format = "jsonl"
 	formatSQLite    format = "sqlite"
 )
 
 type Options struct {
-	Table string
+	Format     string
+	Header     int
+	ShowHidden bool
+	Table      string
 }
 
 func Load(path string) (*sheet.Sheet, error) {
-	return LoadWithOptions(path, Options{})
+	return LoadWithOptions(path, Options{Header: 1})
 }
 
 func LoadWithOptions(path string, opts Options) (*sheet.Sheet, error) {
 	if path == "" {
 		return nil, fmt.Errorf("no input path provided")
+	}
+
+	info, err := os.Stat(path)
+	if err == nil && info.IsDir() {
+		return loadDir(path, opts)
 	}
 
 	reader, closeFn, err := openReader(path)
@@ -37,12 +47,21 @@ func LoadWithOptions(path string, opts Options) (*sheet.Sheet, error) {
 	}
 	defer closeFn()
 
-	fileFormat, err := detectFormat(path, reader)
-	if err != nil {
-		return nil, err
+	fileFormat := format("")
+	if opts.Format != "" {
+		fileFormat = format(strings.ToLower(opts.Format))
+	} else {
+		fileFormat, err = detectFormat(path, reader)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	switch fileFormat {
+	case formatDir:
+		return loadDir(path, opts)
+	case formatFixed:
+		return loadFixed(path, reader, opts)
 	case formatSQLite:
 		return loadSQLite(path, opts)
 	case formatJSON, formatJSONL:
@@ -54,6 +73,8 @@ func LoadWithOptions(path string, opts Options) (*sheet.Sheet, error) {
 
 func detectFormat(path string, reader *os.File) (format, error) {
 	switch strings.ToLower(filepath.Ext(path)) {
+	case ".fixed":
+		return formatFixed, nil
 	case ".json":
 		return formatJSON, nil
 	case ".jsonl", ".ndjson", ".ldjson":
