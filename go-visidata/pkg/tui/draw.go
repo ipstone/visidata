@@ -10,6 +10,7 @@ import (
 )
 
 const rowPrefixWidth = 2
+const clipboardPreviewMaxLen = 24
 
 func (a *App) Draw() {
 	if a.Screen == nil {
@@ -141,7 +142,17 @@ func (a *App) statusLine() string {
 	if query := a.Sheet.SearchState.Query; query != "" {
 		parts = append(parts, fmt.Sprintf("search %q %d/%d", query, min(a.Sheet.SearchState.CurrentMatch+1, len(a.Sheet.SearchState.Matches)), len(a.Sheet.SearchState.Matches)))
 	}
-	parts = append(parts, "q quit", "/ search", "[ ] sort", "s/t/u select")
+	if clip := a.Sheet.ClipboardPreview(clipboardPreviewMaxLen); clip != "" {
+		label := "copy"
+		switch a.Sheet.Clipboard.Kind {
+		case "cell":
+			label = "cell"
+		case "row", "selected rows":
+			label = fmt.Sprintf("%s %d", a.Sheet.Clipboard.Kind, a.Sheet.Clipboard.Count)
+		}
+		parts = append(parts, fmt.Sprintf("%s %q", label, clip))
+	}
+	parts = append(parts, "q quit", "/ search", "[ ] sort", "s/t/u select", "c/C copy")
 	return strings.Join(parts, "  ")
 }
 

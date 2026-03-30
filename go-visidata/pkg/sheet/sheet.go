@@ -61,6 +61,12 @@ type SearchState struct {
 	CurrentMatch int
 }
 
+type Clipboard struct {
+	Content string
+	Kind    string
+	Count   int
+}
+
 type Sheet struct {
 	Name        string
 	Source      string
@@ -71,6 +77,7 @@ type Sheet struct {
 	Selected    []bool
 	SortState   SortState
 	SearchState SearchState
+	Clipboard   Clipboard
 	rowIDs      []int
 	nextRowID   int
 }

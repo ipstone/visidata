@@ -36,6 +36,8 @@ printf '{"name":"Alice","age":30}\n{"name":"Bob","age":40}\n' | go run ./cmd/vdg
 - `[` / `]`: sort ascending / descending on the current column
 - `/`: search for a case-insensitive substring, `n` / `N`: next / previous match
 - `s`: toggle current row selection, `t`: select all rows, `u`: clear selection
+- `c`: copy the current cell to the internal clipboard
+- `C`: copy selected rows (or the current row) to the internal clipboard
 
 Use `-n` to keep the existing non-interactive preview mode.
 Use `-filetype fixed` to force the fixed-width loader on plain text files.

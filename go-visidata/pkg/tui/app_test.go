@@ -94,6 +94,16 @@ func TestHandleKeySortSearchAndSelection(t *testing.T) {
 		t.Fatalf("SelectedCount = %d, want 1", got)
 	}
 
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'c', tcell.ModNone))
+	if got := sh.Clipboard.Content; got != "10" {
+		t.Fatalf("clipboard after c = %q, want %q", got, "10")
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'C', tcell.ModNone))
+	if got := sh.Clipboard.Content; got != "Carol\t10\tKyoto" {
+		t.Fatalf("clipboard after C = %q, want current selected row", got)
+	}
+
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '/', tcell.ModNone))
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'o', tcell.ModNone))
 	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
@@ -119,24 +129,58 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 	sh.ToggleSelected(1)
 	sh.ToggleSort(1, sheet.SortAsc)
 	sh.Search("o")
+	sh.CopyCell(0, 1)
 
 	screen := tcell.NewSimulationScreen("UTF-8")
 	if err := screen.Init(); err != nil {
 		t.Fatalf("Init returned error: %v", err)
 	}
 	defer screen.Fini()
-	screen.SetSize(80, 8)
+	screen.SetSize(160, 8)
 
 	app := New(sh, screen)
 	app.Draw()
 
-	lines := snapshot(screen, 80, 8)
+	lines := snapshot(screen, 160, 8)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"* ",
 		"sort age↑",
 		"search \"o\"",
 		"sel 1",
+		"cell \"20\"",
+		"c/C copy",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("screen missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestDrawRendersCopiedRowsStatus(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+	sh.InferColumnKinds()
+	sh.ToggleSelected(0)
+	sh.ToggleSelected(1)
+	sh.CopySelectedRowsOrCurrent()
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(100, 8)
+
+	app := New(sh, screen)
+	app.Draw()
+
+	lines := snapshot(screen, 100, 8)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"selected rows 2",
+		`"Alice ⇥ 30 ⏎ Bob ⇥ 20"`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("screen missing %q:\n%s", want, joined)

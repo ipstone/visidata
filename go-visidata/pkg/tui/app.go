@@ -116,6 +116,10 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 			a.Sheet.SelectAll()
 		case 'u':
 			a.Sheet.ClearSelection()
+		case 'c':
+			a.Sheet.CopyCell(a.Sheet.CursorRow, a.Sheet.CursorCol)
+		case 'C':
+			a.Sheet.CopySelectedRowsOrCurrent()
 		}
 	}
 
