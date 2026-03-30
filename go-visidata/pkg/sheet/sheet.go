@@ -139,6 +139,9 @@ func normalizeNumber(value string) string {
 }
 
 func looksLikeDate(value string) bool {
+	// Go time layouts use the reference timestamp 1/2/2006 3:04PM.
+	// These layouts cover the simple ISO and month/day formats seen in the
+	// existing VisiData sample data fixtures.
 	layouts := []string{
 		time.RFC3339,
 		"2006-01-02",
