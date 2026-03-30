@@ -26,7 +26,7 @@
 
 **Why Go?**
 - Single binary distribution (no Python/pip/virtualenv)
-- Fast startup (~10ms vs ~500ms for Python)
+- Fast startup (typically under 50ms for Go binaries vs ~500ms for Python)
 - Built-in concurrency via goroutines (replaces Python's threading)
 - Cross-compilation for Linux/macOS/Windows/ARM
 - Strong standard library for CSV, JSON, SQL, HTTP, compression
@@ -311,7 +311,7 @@ func (s *TableSheet) Reload(ctx context.Context) error {
 | `path.py` | 541 | `core/path.go` | Data source path abstraction |
 | `color.py` | ~250 | `tui/color.go` | Color themes and attribute mapping |
 | `menu.py` | 517 | `tui/menu.go` | Menu system |
-| `expr.go` | 128 | `core/expr.go` | Expression engine (govaluate or custom) |
+| `expr.py` | 128 | `core/expr.go` | Expression engine (govaluate or custom) |
 | `aggregators.py` | 422 | `core/aggregator.go` | Aggregation function registry |
 | `selection.py` | 266 | `core/selection.go` | Row selection with map-based membership |
 | `sort.py` | 177 | `core/sort.go` | Multi-column sort with `sort.Slice` |
@@ -350,7 +350,7 @@ func (s *TableSheet) Reload(ctx context.Context) error {
 | YAML | `yaml.py` | `gopkg.in/yaml.v3` | P1 |
 | XML | `xml.py` | `encoding/xml` (stdlib) | P1 |
 | HTML tables | `html.py` | `golang.org/x/net/html` | P1 |
-| Parquet | `parquet.go` | `github.com/parquet-go/parquet-go` | P1 |
+| Parquet | `parquet.py` | `github.com/parquet-go/parquet-go` | P1 |
 | Arrow/IPC | `arrow.py` | `github.com/apache/arrow/go` | P2 |
 | PostgreSQL | `postgres.py` | `github.com/lib/pq` or `pgx` | P2 |
 | MySQL | `mysql.py` | `github.com/go-sql-driver/mysql` | P2 |
