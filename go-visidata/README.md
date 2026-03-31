@@ -41,6 +41,7 @@ printf '{"name":"Alice","age":30}\n{"name":"Bob","age":40}\n' | go run ./cmd/vdg
 - `D`: open a deduplicated view using the current column
 - `F`: open a frequency table for the current column
 - `I`: open a describe sheet for the current sheet
+- `W`: open a pivot view grouped by the current column
 - `T`: transpose the current sheet
 - `V`: open the current sheet stack and press `Enter` to jump to a sheet
 - `M`: open an editable columns metasheet for the current sheet

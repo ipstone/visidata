@@ -71,6 +71,84 @@ func (s *Sheet) DedupeSheet(columnIndex int) (*Sheet, error) {
 	return sh, nil
 }
 
+func (s *Sheet) PivotSheet(columnIndex int) (*Sheet, error) {
+	if columnIndex < 0 || columnIndex >= len(s.Columns) {
+		return nil, fmt.Errorf("column %d out of range", columnIndex)
+	}
+
+	type aggColumn struct {
+		index int
+		name  string
+		kind  ValueKind
+	}
+	type pivotRow struct {
+		key   string
+		count int
+		sums  []float64
+	}
+
+	aggCols := make([]aggColumn, 0)
+	for _, visibleIndex := range s.VisibleColumnIndices() {
+		if visibleIndex == columnIndex {
+			continue
+		}
+		kind := s.Columns[visibleIndex].EffectiveKind()
+		if kind == KindInt || kind == KindFloat || kind == KindCurrency {
+			aggCols = append(aggCols, aggColumn{
+				index: visibleIndex,
+				name:  s.Columns[visibleIndex].Name + "_sum",
+				kind:  kind,
+			})
+		}
+	}
+
+	headers := []string{s.Columns[columnIndex].Name, "count"}
+	for _, aggCol := range aggCols {
+		headers = append(headers, aggCol.name)
+	}
+
+	groups := make(map[string]*pivotRow)
+	order := make([]string, 0)
+	for rowIndex := range s.Rows {
+		key := s.Cell(rowIndex, columnIndex)
+		group, ok := groups[key]
+		if !ok {
+			group = &pivotRow{key: key, sums: make([]float64, len(aggCols))}
+			groups[key] = group
+			order = append(order, key)
+		}
+		group.count++
+		for i, aggCol := range aggCols {
+			if value, ok := parseNumericValue(aggCol.kind, s.Cell(rowIndex, aggCol.index)); ok {
+				group.sums[i] += value
+			}
+		}
+	}
+
+	kind := s.Columns[columnIndex].EffectiveKind()
+	sort.Slice(order, func(i, j int) bool {
+		return compareValues(kind, order[i], order[j]) < 0
+	})
+
+	sh := New(fmt.Sprintf("pivot:%s:%s", s.Name, s.Columns[columnIndex].Name), s.Source, headers)
+	sh.Columns[0].Kind = kind
+	sh.Columns[1].Kind = KindInt
+	for i, aggCol := range aggCols {
+		sh.Columns[i+2].Kind = aggCol.kind
+	}
+
+	for _, key := range order {
+		group := groups[key]
+		row := []string{group.key, strconv.Itoa(group.count)}
+		for i, aggCol := range aggCols {
+			row = append(row, formatNumericValue(aggCol.kind, group.sums[i]))
+		}
+		sh.AddRawRow(row)
+	}
+
+	return sh, nil
+}
+
 func (s *Sheet) FrequencySheet(columnIndex int) (*Sheet, error) {
 	if columnIndex < 0 || columnIndex >= len(s.Columns) {
 		return nil, fmt.Errorf("column %d out of range", columnIndex)

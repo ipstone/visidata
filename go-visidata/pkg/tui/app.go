@@ -159,6 +159,8 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 		case 'I':
 			a.pushSheet(a.Sheet.DescribeSheet())
 			a.Sheet.Status = fmt.Sprintf("describe %s", a.Sheet.Name)
+		case 'W':
+			a.openPivotSheet()
 		case 'T':
 			a.pushSheet(a.Sheet.TransposeSheet())
 			a.Sheet.Status = fmt.Sprintf("transpose %s", a.Sheet.Name)
@@ -261,6 +263,16 @@ func (a *App) openFrequencySheet() {
 	}
 	a.pushSheet(sh)
 	a.Sheet.Status = fmt.Sprintf("frequency %s", a.Sheet.Name)
+}
+
+func (a *App) openPivotSheet() {
+	sh, err := a.Sheet.PivotSheet(a.Sheet.CursorCol)
+	if err != nil {
+		a.Sheet.Status = fmt.Sprintf("pivot failed: %v", err)
+		return
+	}
+	a.pushSheet(sh)
+	a.Sheet.Status = fmt.Sprintf("pivot %s", a.Sheet.Name)
 }
 
 func (a *App) openDedupeSheet() {

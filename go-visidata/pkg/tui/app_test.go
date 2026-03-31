@@ -63,7 +63,9 @@ func TestDrawRendersStatusAndData(t *testing.T) {
 	for _, want := range []string{
 		"people.csv: 2 row(s) x 2 column(s)",
 		"name <string>",
+		"age <int>",
 		"Alice",
+		"30",
 		"row 1/2",
 		"q quit",
 	} {
@@ -223,6 +225,7 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 		"cell \"20\"",
 		"f freeze",
 		"D dedupe",
+		"W pivot",
 		"c / C copy",
 		"d delete",
 		"S save",
@@ -330,6 +333,12 @@ func TestHandleKeyOpensDerivedSheetsAndPopsBack(t *testing.T) {
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'I', tcell.ModNone))
 	if got := app.Sheet.Name; got != "describe:people.csv" {
 		t.Fatalf("describe sheet name = %q, want describe:people.csv", got)
+	}
+	_ = app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone))
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'W', tcell.ModNone))
+	if got := app.Sheet.Name; got != "pivot:people.csv:city" {
+		t.Fatalf("pivot sheet name = %q, want pivot:people.csv:city", got)
 	}
 	_ = app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone))
 
@@ -475,6 +484,7 @@ func TestDrawRendersDeleteAndSaveStatus(t *testing.T) {
 		"d delete",
 		"F freq",
 		"I describe",
+		"W pivot",
 		"T transpose",
 		"V sheets",
 		"M columns",
@@ -530,18 +540,19 @@ func TestDrawRendersMetaStackStatus(t *testing.T) {
 		t.Fatalf("Init returned error: %v", err)
 	}
 	defer screen.Fini()
-	screen.SetSize(220, 8)
+	screen.SetSize(320, 8)
 
 	app := New(sh, screen)
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'M', tcell.ModNone))
 	app.Draw()
 
-	lines := snapshot(screen, 220, 8)
+	lines := snapshot(screen, 320, 8)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"columns:people.csv",
 		"stack 2",
 		"f freeze",
+		"W pivot",
 		"V sheets",
 		"? commands",
 	} {

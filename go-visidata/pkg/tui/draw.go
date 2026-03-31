@@ -76,7 +76,7 @@ func (a *App) drawRow(y, width int, cols []int, valueFn func(col int) string, ba
 	x := a.drawText(0, y, rowPrefixWidth, prefix, baseStyle)
 	for i, col := range cols {
 		if i > 0 {
-			x = a.drawText(x, y, width-x, " | ", baseStyle)
+			x = a.drawText(x, y, min(3, width-x), " | ", baseStyle)
 		}
 		style := baseStyle
 		if cursorRow >= 0 && a.Sheet.IsSelected(cursorRow) {
@@ -88,7 +88,7 @@ func (a *App) drawRow(y, width int, cols []int, valueFn func(col int) string, ba
 		if cursorRow == a.Sheet.CursorRow && col == a.Sheet.CursorCol {
 			style = style.Reverse(true).Bold(true)
 		}
-		x = a.drawText(x, y, width-x, padRight(valueFn(col), a.colWidths[col]), style)
+		x = a.drawText(x, y, min(a.colWidths[col], width-x), padRight(valueFn(col), a.colWidths[col]), style)
 		if x >= width {
 			return
 		}

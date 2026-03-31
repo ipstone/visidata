@@ -58,6 +58,40 @@ func TestDedupeSheetPreservesFirstRowAndCountsDuplicates(t *testing.T) {
 	}
 }
 
+func TestPivotSheetGroupsByCurrentColumnAndSumsNumericColumns(t *testing.T) {
+	sh := New("sales.csv", "/tmp/sales.csv", []string{"dept", "qty", "amount", "note"})
+	sh.AddRow([]string{"A", "3", "1.50", "first"})
+	sh.AddRow([]string{"B", "2", "2.25", "only"})
+	sh.AddRow([]string{"A", "5", "3.75", "second"})
+	sh.InferColumnKinds()
+
+	pivot, err := sh.PivotSheet(0)
+	if err != nil {
+		t.Fatalf("PivotSheet returned error: %v", err)
+	}
+	if got := pivot.Name; got != "pivot:sales.csv:dept" {
+		t.Fatalf("pivot sheet name = %q, want %q", got, "pivot:sales.csv:dept")
+	}
+	if len(pivot.Rows) != 2 {
+		t.Fatalf("len(rows) = %d, want 2", len(pivot.Rows))
+	}
+	if got := pivot.Cell(0, 0); got != "A" {
+		t.Fatalf("first group key = %q, want A", got)
+	}
+	if got := pivot.Cell(0, 1); got != "2" {
+		t.Fatalf("group count = %q, want 2", got)
+	}
+	if got := pivot.Cell(0, 2); got != "8" {
+		t.Fatalf("qty sum = %q, want 8", got)
+	}
+	if got := pivot.Cell(0, 3); got != "5.25" {
+		t.Fatalf("amount sum = %q, want 5.25", got)
+	}
+	if got := len(pivot.Columns); got != 4 {
+		t.Fatalf("len(columns) = %d, want 4", got)
+	}
+}
+
 func TestFrequencySheet(t *testing.T) {
 	sh := New("people.csv", "/tmp/people.csv", []string{"city", "age"})
 	sh.AddRow([]string{"Tokyo", "30"})

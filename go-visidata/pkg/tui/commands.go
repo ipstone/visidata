@@ -14,6 +14,7 @@ var commandCatalog = []commandInfo{
 	{Keys: "D", Name: "dedupe", Help: "open a deduplicated view using the current column"},
 	{Keys: "F", Name: "frequency", Help: "open a frequency sheet for the current column"},
 	{Keys: "I", Name: "describe", Help: "open a describe sheet for the current sheet"},
+	{Keys: "W", Name: "pivot", Help: "open a pivot view grouped by the current column"},
 	{Keys: "T", Name: "transpose", Help: "transpose the current sheet"},
 	{Keys: "V", Name: "sheets", Help: "open the current sheet stack"},
 	{Keys: "M", Name: "columns", Help: "open an editable columns metasheet"},
