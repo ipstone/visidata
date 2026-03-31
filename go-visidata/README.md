@@ -9,9 +9,13 @@ Current scope:
 - load directory listings
 - load SQLite databases
 - infer simple column types (`string`, `int`, `float`, `bool`, `date`)
+- add materialized expression columns from existing row values
+- keep a basic in-memory undo stack for sheet mutations
 - render a terminal preview table
 - open a minimal interactive terminal viewer with basic navigation
 - open derived analysis sheets for frequency counts, describe summaries, and transpose views
+- open melt/unpivot views using the current column as an identifier
+- record an in-memory command log for the current interactive session
 
 ## Usage
 
@@ -32,22 +36,29 @@ printf '{"name":"Alice","age":30}\n{"name":"Bob","age":40}\n' | go run ./cmd/vdg
 
 - `q`: quit, or close the current derived sheet and return to the previous sheet
 - `Esc`/`Ctrl+C`: quit
+- `Enter`: open the current row as a column/value table, or open the matching subset from a frequency sheet
 - arrow keys or `hjkl`: move cursor
 - `PageUp`/`PageDown`: move by page
 - `Home`/`g`: first row
 - `End`/`G`: last row
 - `[` / `]`: sort ascending / descending on the current column
+- `=`: add an expression column; use `name := expr` to name it explicitly
 - `&`: join with the previous sheet in the stack using the current column
 - `f`: open a frozen snapshot of the current sheet
+- `m`: open a melt/unpivot view using the current column as the identifier
 - `D`: open a deduplicated view using the current column
-- `F`: open a frequency table for the current column
+- `F`: open a frequency table for the current column; press `Enter` on a value to open matching rows
 - `I`: open a describe sheet for the current sheet
 - `W`: open a pivot view grouped by the current column
 - `T`: transpose the current sheet
 - `V`: open the current sheet stack and press `Enter` to jump to a sheet
 - `M`: open an editable columns metasheet for the current sheet
 - `O`: open a viewer state sheet for the current sheet
+- `P`: open the in-memory command log for the current session
 - `?`: open the command reference sheet
+- `R`: redo the last undone sheet mutation on the current sheet
+- `U`: undo the last sheet mutation on the current sheet
+- `e`: edit the current cell in place
 - `/`: search for a case-insensitive substring, `n` / `N`: next / previous match
 - `s`: toggle current row selection, `t`: select all rows, `u`: clear selection
 - `|`: regex-select rows matching the current column, `\`: regex-unselect matching rows
@@ -59,6 +70,8 @@ printf '{"name":"Alice","age":30}\n{"name":"Bob","age":40}\n' | go run ./cmd/vdg
 - `^`: rename the current column
 - `_`: set the display width for the current column
 - `~` / `#` / `%` / `$` / `@`: override the current column type to string, int, float, currency, or date
+
+Expression columns can reference simple column names directly and always expose `col1`, `col2`, ... aliases for the table columns. Use `str(...)` when concatenating non-string values. For example: `total := qty * price` or `str(col1 * 10) + "-" + City`.
 
 Use `-n` to keep the existing non-interactive preview mode.
 Use `-save` to export the loaded sheet to a `.csv`, `.tsv`, or `.json` file and exit.

@@ -26,6 +26,34 @@ func (s *Sheet) FreezeSheet() *Sheet {
 	return sh
 }
 
+func (s *Sheet) FilterValueSheet(columnIndex int, value string) (*Sheet, error) {
+	if columnIndex < 0 || columnIndex >= len(s.Columns) {
+		return nil, fmt.Errorf("column %d out of range", columnIndex)
+	}
+
+	headers := make([]string, len(s.Columns))
+	for i, col := range s.Columns {
+		headers[i] = col.Name
+	}
+
+	sh := New(fmt.Sprintf("filter:%s:%s=%s", s.Name, s.Columns[columnIndex].Name, value), s.Source, headers)
+	sh.MetaKind = "filter"
+	sh.MetaCols = []int{columnIndex}
+	sh.MetaTargets = []*Sheet{s}
+	for i, col := range s.Columns {
+		sh.Columns[i] = col
+	}
+
+	for rowIndex, row := range s.Rows {
+		if s.Cell(rowIndex, columnIndex) != value {
+			continue
+		}
+		sh.AddRawRow(row)
+	}
+
+	return sh, nil
+}
+
 func (s *Sheet) DedupeSheet(columnIndex int) (*Sheet, error) {
 	if columnIndex < 0 || columnIndex >= len(s.Columns) {
 		return nil, fmt.Errorf("column %d out of range", columnIndex)
@@ -149,6 +177,35 @@ func (s *Sheet) PivotSheet(columnIndex int) (*Sheet, error) {
 	return sh, nil
 }
 
+func (s *Sheet) MeltSheet(idColumnIndex int) (*Sheet, error) {
+	if idColumnIndex < 0 || idColumnIndex >= len(s.Columns) {
+		return nil, fmt.Errorf("column %d out of range", idColumnIndex)
+	}
+
+	visibleCols := s.VisibleColumnIndices()
+	valueCols := make([]int, 0, len(visibleCols)-1)
+	for _, colIndex := range visibleCols {
+		if colIndex == idColumnIndex {
+			continue
+		}
+		valueCols = append(valueCols, colIndex)
+	}
+
+	sh := New(fmt.Sprintf("melt:%s:%s", s.Name, s.Columns[idColumnIndex].Name), s.Source, []string{s.Columns[idColumnIndex].Name, "variable", "value"})
+	sh.Columns[0].Kind = s.Columns[idColumnIndex].EffectiveKind()
+	sh.Columns[1].Kind = KindString
+	sh.Columns[2].Kind = KindString
+
+	for rowIndex := range s.Rows {
+		idValue := s.Cell(rowIndex, idColumnIndex)
+		for _, colIndex := range valueCols {
+			sh.AddRawRow([]string{idValue, s.Columns[colIndex].Name, s.Cell(rowIndex, colIndex)})
+		}
+	}
+
+	return sh, nil
+}
+
 func (s *Sheet) JoinSheet(other *Sheet, leftColumnIndex, rightColumnIndex int) (*Sheet, error) {
 	if other == nil {
 		return nil, fmt.Errorf("join requires another sheet")
@@ -252,6 +309,9 @@ func (s *Sheet) FrequencySheet(columnIndex int) (*Sheet, error) {
 	})
 
 	sh := New(fmt.Sprintf("freq:%s:%s", s.Name, s.Columns[columnIndex].Name), s.Source, []string{s.Columns[columnIndex].Name, "count", "percent"})
+	sh.MetaKind = "freq"
+	sh.MetaCols = []int{columnIndex}
+	sh.MetaTargets = []*Sheet{s}
 	sh.Columns[0].Kind = kind
 	sh.Columns[1].Kind = KindInt
 	sh.Columns[2].Kind = KindFloat

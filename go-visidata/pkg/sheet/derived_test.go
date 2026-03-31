@@ -2,6 +2,40 @@ package sheet
 
 import "testing"
 
+func TestFilterValueSheetPreservesMatchingRowsAndColumnState(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"city", "age", "note"})
+	sh.AddRow([]string{"Tokyo", "30", "first"})
+	sh.AddRow([]string{"Osaka", "20", "only"})
+	sh.AddRow([]string{"Tokyo", "40", "second"})
+	sh.InferColumnKinds()
+	if err := sh.OverrideColumnKind(1, KindCurrency); err != nil {
+		t.Fatalf("OverrideColumnKind returned error: %v", err)
+	}
+	if err := sh.ToggleHidden(2); err != nil {
+		t.Fatalf("ToggleHidden returned error: %v", err)
+	}
+
+	filtered, err := sh.FilterValueSheet(0, "Tokyo")
+	if err != nil {
+		t.Fatalf("FilterValueSheet returned error: %v", err)
+	}
+	if got := filtered.Name; got != "filter:people.csv:city=Tokyo" {
+		t.Fatalf("filtered sheet name = %q, want %q", got, "filter:people.csv:city=Tokyo")
+	}
+	if got := len(filtered.Rows); got != 2 {
+		t.Fatalf("len(rows) = %d, want 2", got)
+	}
+	if got := filtered.Cell(1, 2); got != "second" {
+		t.Fatalf("second filtered note = %q, want second", got)
+	}
+	if got := filtered.Columns[1].EffectiveKind(); got != KindCurrency {
+		t.Fatalf("age kind = %s, want currency", got)
+	}
+	if !filtered.Columns[2].Hidden {
+		t.Fatal("expected hidden column state to be preserved")
+	}
+}
+
 func TestFreezeSheetCopiesVisibleColumnsAndKinds(t *testing.T) {
 	sh := New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
 	sh.AddRow([]string{"Alice", "30", "Tokyo"})
@@ -92,6 +126,42 @@ func TestPivotSheetGroupsByCurrentColumnAndSumsNumericColumns(t *testing.T) {
 	}
 }
 
+func TestMeltSheetUsesCurrentColumnAsIdentifier(t *testing.T) {
+	sh := New("sales.csv", "/tmp/sales.csv", []string{"dept", "qty", "amount", "note"})
+	sh.AddRow([]string{"A", "3", "1.50", "first"})
+	sh.AddRow([]string{"B", "2", "2.25", "only"})
+	sh.InferColumnKinds()
+	if err := sh.ToggleHidden(3); err != nil {
+		t.Fatalf("ToggleHidden returned error: %v", err)
+	}
+
+	melt, err := sh.MeltSheet(0)
+	if err != nil {
+		t.Fatalf("MeltSheet returned error: %v", err)
+	}
+	if got := melt.Name; got != "melt:sales.csv:dept" {
+		t.Fatalf("melt sheet name = %q, want %q", got, "melt:sales.csv:dept")
+	}
+	if got := len(melt.Rows); got != 4 {
+		t.Fatalf("len(rows) = %d, want 4", got)
+	}
+	if got := melt.Cell(0, 0); got != "A" {
+		t.Fatalf("first id value = %q, want A", got)
+	}
+	if got := melt.Cell(0, 1); got != "qty" {
+		t.Fatalf("first variable = %q, want qty", got)
+	}
+	if got := melt.Cell(1, 1); got != "amount" {
+		t.Fatalf("second variable = %q, want amount", got)
+	}
+	if got := melt.Cell(3, 2); got != "2.25" {
+		t.Fatalf("last value = %q, want 2.25", got)
+	}
+	if got := melt.Columns[0].Kind; got != KindString {
+		t.Fatalf("id kind = %s, want string", got)
+	}
+}
+
 func TestJoinSheetMatchesRowsAndPrefixesDuplicateHeaders(t *testing.T) {
 	left := New("left.csv", "/tmp/left.csv", []string{"id", "name", "score"})
 	left.AddRow([]string{"1", "Alice", "10"})
@@ -163,6 +233,15 @@ func TestFrequencySheet(t *testing.T) {
 	}
 	if got := freq.Columns[1].Kind; got != KindInt {
 		t.Fatalf("count kind = %s, want int", got)
+	}
+	if got := freq.MetaKind; got != "freq" {
+		t.Fatalf("meta kind = %q, want freq", got)
+	}
+	if len(freq.MetaCols) != 1 || freq.MetaCols[0] != 0 {
+		t.Fatalf("meta cols = %v, want [0]", freq.MetaCols)
+	}
+	if len(freq.MetaTargets) != 1 || freq.MetaTargets[0] != sh {
+		t.Fatal("expected frequency sheet to retain source sheet metadata")
 	}
 }
 

@@ -2,6 +2,29 @@ package sheet
 
 import "strconv"
 
+func (s *Sheet) RowDetailsSheet(rowIndex int) *Sheet {
+	sh := New("row:"+s.Name+":"+strconv.Itoa(rowIndex+1), s.Source, []string{"index", "column", "type", "value"})
+	sh.MetaKind = "row"
+	sh.MetaTargets = []*Sheet{s}
+	sh.Columns[0].Kind = KindInt
+
+	if rowIndex < 0 || rowIndex >= len(s.Rows) {
+		return sh
+	}
+
+	for i, col := range s.Columns {
+		sh.MetaRows = append(sh.MetaRows, i)
+		sh.AddRawRow([]string{
+			strconv.Itoa(i + 1),
+			col.Name,
+			string(col.EffectiveKind()),
+			s.Cell(rowIndex, i),
+		})
+	}
+
+	return sh
+}
+
 func (s *Sheet) ColumnsSheet() *Sheet {
 	sh := New("columns:"+s.Name, s.Source, []string{"index", "name", "type", "width", "hidden", "visible"})
 	sh.MetaKind = "columns"

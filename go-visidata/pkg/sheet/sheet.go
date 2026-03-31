@@ -77,6 +77,7 @@ type Sheet struct {
 	Columns     []Column
 	Rows        []Row
 	MetaKind    string
+	MetaCols    []int
 	MetaRows    []int
 	MetaTargets []*Sheet
 	CursorRow   int
@@ -88,6 +89,8 @@ type Sheet struct {
 	Status      string
 	rowIDs      []int
 	nextRowID   int
+	undoStack   []sheetUndoEntry
+	redoStack   []sheetUndoEntry
 }
 
 func New(name, source string, headers []string) *Sheet {

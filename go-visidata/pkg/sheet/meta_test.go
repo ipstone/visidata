@@ -2,6 +2,33 @@ package sheet
 
 import "testing"
 
+func TestRowDetailsSheet(t *testing.T) {
+	sh := New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
+	sh.AddRow([]string{"Alice", "30", "Tokyo"})
+	sh.AddRow([]string{"Bob", "20", "Osaka"})
+	sh.InferColumnKinds()
+
+	row := sh.RowDetailsSheet(1)
+	if got := row.Name; got != "row:people.csv:2" {
+		t.Fatalf("row details name = %q, want %q", got, "row:people.csv:2")
+	}
+	if got := row.MetaKind; got != "row" {
+		t.Fatalf("MetaKind = %q, want row", got)
+	}
+	if len(row.Rows) != 3 {
+		t.Fatalf("len(rows) = %d, want 3", len(row.Rows))
+	}
+	if got := row.Cell(0, 1); got != "name" {
+		t.Fatalf("first column label = %q, want name", got)
+	}
+	if got := row.Cell(1, 2); got != "int" {
+		t.Fatalf("age type = %q, want int", got)
+	}
+	if got := row.Cell(2, 3); got != "Osaka" {
+		t.Fatalf("city value = %q, want Osaka", got)
+	}
+}
+
 func TestColumnsSheet(t *testing.T) {
 	sh := New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
 	sh.AddRow([]string{"Alice", "30", "Tokyo"})

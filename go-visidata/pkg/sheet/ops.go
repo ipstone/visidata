@@ -40,6 +40,7 @@ func (s *Sheet) DeleteRows(rows []int) int {
 		return 0
 	}
 	sort.Ints(filtered)
+	s.pushUndo("delete rows")
 	s.copyRows(filtered, "deleted rows")
 
 	deleteSet := make(map[int]struct{}, len(filtered))
@@ -75,6 +76,7 @@ func (s *Sheet) ToggleSort(columnIndex int, direction SortDirection) {
 		s.ClearSort()
 		return
 	}
+	s.pushUndo("sort rows")
 
 	type sortableRow struct {
 		row      Row
@@ -120,6 +122,10 @@ func (s *Sheet) ClearSort() {
 		s.SortState = SortState{}
 		return
 	}
+	if s.SortState.Direction == SortNone {
+		return
+	}
+	s.pushUndo("clear sort")
 
 	type sortableRow struct {
 		row      Row

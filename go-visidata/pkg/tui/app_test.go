@@ -42,6 +42,29 @@ func TestHandleKeyMovesCursorAndViewport(t *testing.T) {
 	}
 }
 
+func TestHandleKeyEnterOpensRowDetailsSheet(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
+	sh.AddRow([]string{"Alice", "30", "Tokyo"})
+	sh.AddRow([]string{"Bob", "20", "Osaka"})
+	sh.InferColumnKinds()
+	sh.SetCursorRow(1)
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := app.Sheet.Name; got != "row:people.csv:2" {
+		t.Fatalf("row details name = %q, want row:people.csv:2", got)
+	}
+	if got := app.Sheet.Cell(2, 3); got != "Osaka" {
+		t.Fatalf("row details city = %q, want Osaka", got)
+	}
+	if quit := app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)); quit {
+		t.Fatal("q should pop row details sheet before quitting")
+	}
+	if got := app.Sheet.Name; got != "people.csv" {
+		t.Fatalf("sheet after pop = %q, want people.csv", got)
+	}
+}
+
 func TestDrawRendersStatusAndData(t *testing.T) {
 	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
 	sh.AddRow([]string{"Alice", "30"})
@@ -195,6 +218,134 @@ func TestHandleKeyColumnOpsAndRegexSelection(t *testing.T) {
 	}
 }
 
+func TestHandleKeyAddsExpressionColumn(t *testing.T) {
+	sh := sheet.New("orders.csv", "/tmp/orders.csv", []string{"qty", "price"})
+	sh.AddRow([]string{"2", "1.5"})
+	sh.AddRow([]string{"4", "2.0"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '=', tcell.ModNone))
+	for _, r := range "total := qty * price" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+
+	if got := len(sh.Columns); got != 3 {
+		t.Fatalf("len(columns) = %d, want 3", got)
+	}
+	if got := sh.Columns[2].Name; got != "total" {
+		t.Fatalf("expr column name = %q, want total", got)
+	}
+	if got := sh.Cell(0, 2); got != "3" {
+		t.Fatalf("first expr value = %q, want 3", got)
+	}
+	if got := sh.Cell(1, 2); got != "8" {
+		t.Fatalf("second expr value = %q, want 8", got)
+	}
+	if got := sh.Columns[2].Kind; got != sheet.KindInt {
+		t.Fatalf("expr column kind = %s, want int", got)
+	}
+	if got := sh.CursorCol; got != 2 {
+		t.Fatalf("cursor col = %d, want 2", got)
+	}
+}
+
+func TestHandleKeyEditsCellAndUndoRestoresValue(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	sh.SetCursorRow(1)
+	sh.SetCursorCol(1)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'e', tcell.ModNone))
+	for i := 0; i < 2; i++ {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyBackspace2, 0, tcell.ModNone))
+	}
+	for _, r := range "25" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.Cell(1, 1); got != "25" {
+		t.Fatalf("edited cell value = %q, want 25", got)
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'U', tcell.ModNone))
+	if got := sh.Cell(1, 1); got != "20" {
+		t.Fatalf("cell value after undo = %q, want 20", got)
+	}
+}
+
+func TestHandleKeyUndoRestoresDeletedRows(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+	sh.AddRow([]string{"Carol", "10"})
+
+	app := New(sh, nil)
+	sh.SetCursorRow(1)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'd', tcell.ModNone))
+	if got := len(sh.Rows); got != 2 {
+		t.Fatalf("len(rows) after delete = %d, want 2", got)
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'U', tcell.ModNone))
+	if got := len(sh.Rows); got != 3 {
+		t.Fatalf("len(rows) after undo = %d, want 3", got)
+	}
+	if got := sh.Cell(1, 0); got != "Bob" {
+		t.Fatalf("row restored after undo = %q, want Bob", got)
+	}
+	if !strings.Contains(sh.Status, "undid delete rows") {
+		t.Fatalf("status after undo = %q, want undo status", sh.Status)
+	}
+}
+
+func TestHandleKeyRedoReappliesDeletedRows(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+	sh.AddRow([]string{"Carol", "10"})
+
+	app := New(sh, nil)
+	sh.SetCursorRow(1)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'd', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'U', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'R', tcell.ModNone))
+	if got := len(sh.Rows); got != 2 {
+		t.Fatalf("len(rows) after redo = %d, want 2", got)
+	}
+	if got := sh.Cell(1, 0); got != "Carol" {
+		t.Fatalf("row after redo = %q, want Carol", got)
+	}
+	if !strings.Contains(sh.Status, "redid delete rows") {
+		t.Fatalf("status after redo = %q, want redo status", sh.Status)
+	}
+}
+
+func TestHandleKeyOpensCommandLogSheet(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '=', tcell.ModNone))
+	for _, r := range "double := age * 2" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'P', tcell.ModNone))
+	if got := app.Sheet.Name; got != "cmdlog" {
+		t.Fatalf("cmdlog sheet name = %q, want cmdlog", got)
+	}
+	if got := app.Sheet.Cell(0, 2); got != "expr-col" {
+		t.Fatalf("first logged command = %q, want expr-col", got)
+	}
+	if got := app.Sheet.Cell(1, 2); got != "cmdlog" {
+		t.Fatalf("second logged command = %q, want cmdlog", got)
+	}
+}
+
 func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
 	sh.AddRow([]string{"Alice", "30"})
@@ -219,15 +370,22 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"* ",
+		"Enter open-row",
 		"sort age↑",
 		"search \"o\"",
 		"sel 1",
+		"= expr-col",
 		"cell \"20\"",
 		"& join",
 		"f freeze",
+		"m melt",
 		"D dedupe",
 		"W pivot",
+		"P cmdlog",
+		"R redo",
+		"U undo",
 		"c / C copy",
+		"e edit-cell",
 		"d delete",
 		"S save",
 		"- / H columns-visibility",
@@ -331,6 +489,22 @@ func TestHandleKeyOpensDerivedSheetsAndPopsBack(t *testing.T) {
 	if len(app.stack) != 2 {
 		t.Fatalf("stack depth = %d, want 2", len(app.stack))
 	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := app.Sheet.Name; got != "filter:people.csv:city=Tokyo" {
+		t.Fatalf("filter sheet name = %q, want filter:people.csv:city=Tokyo", got)
+	}
+	if got := len(app.Sheet.Rows); got != 2 {
+		t.Fatalf("filtered row count = %d, want 2", got)
+	}
+	if got := app.Sheet.Cell(1, 1); got != "20" {
+		t.Fatalf("second filtered age = %q, want 20", got)
+	}
+	if quit := app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)); quit {
+		t.Fatal("q should pop filtered sheet before quitting")
+	}
+	if got := app.Sheet.Name; got != "freq:people.csv:city" {
+		t.Fatalf("sheet after filtered pop = %q, want freq:people.csv:city", got)
+	}
 	if quit := app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)); quit {
 		t.Fatal("q should pop derived sheet before quitting")
 	}
@@ -341,6 +515,12 @@ func TestHandleKeyOpensDerivedSheetsAndPopsBack(t *testing.T) {
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'I', tcell.ModNone))
 	if got := app.Sheet.Name; got != "describe:people.csv" {
 		t.Fatalf("describe sheet name = %q, want describe:people.csv", got)
+	}
+	_ = app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone))
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'm', tcell.ModNone))
+	if got := app.Sheet.Name; got != "melt:people.csv:city" {
+		t.Fatalf("melt sheet name = %q, want melt:people.csv:city", got)
 	}
 	_ = app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone))
 
@@ -487,10 +667,17 @@ func TestDrawRendersDeleteAndSaveStatus(t *testing.T) {
 	for _, want := range []string{
 		"deleted rows 1",
 		"deleted 1 row(s)",
+		"Enter open-row",
+		"= expr-col",
 		"& join",
 		"f freeze",
+		"m melt",
 		"D dedupe",
 		"d delete",
+		"P cmdlog",
+		"R redo",
+		"U undo",
+		"e edit-cell",
 		"F freq",
 		"I describe",
 		"W pivot",
@@ -560,15 +747,69 @@ func TestDrawRendersMetaStackStatus(t *testing.T) {
 	for _, want := range []string{
 		"columns:people.csv",
 		"stack 2",
+		"Enter open-row",
+		"= expr-col",
 		"& join",
 		"f freeze",
+		"m melt",
 		"W pivot",
 		"V sheets",
+		"P cmdlog",
+		"R redo",
+		"U undo",
 		"? commands",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("screen missing %q:\n%s", want, joined)
 		}
+	}
+}
+
+func TestDrawRendersExpressionInputPrompt(t *testing.T) {
+	sh := sheet.New("orders.csv", "/tmp/orders.csv", []string{"qty", "price"})
+	sh.AddRow([]string{"2", "1.5"})
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(200, 8)
+
+	app := New(sh, screen)
+	app.beginInput(inputModeExpr, "total := qty * price")
+	app.Draw()
+
+	lines := snapshot(screen, 200, 8)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"Expr column: total := qty * price",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("screen missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestDrawRendersEditCellInputPrompt(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(200, 8)
+
+	app := New(sh, screen)
+	app.beginInput(inputModeEditCell, "30")
+	app.Draw()
+
+	lines := snapshot(screen, 200, 8)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "Edit cell: 30") {
+		t.Fatalf("screen missing edit prompt:\n%s", joined)
 	}
 }
 

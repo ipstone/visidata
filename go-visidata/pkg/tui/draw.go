@@ -282,6 +282,10 @@ func (a *App) inputPrompt() string {
 	switch a.mode {
 	case inputModeSearch:
 		return "Search"
+	case inputModeEditCell:
+		return "Edit cell"
+	case inputModeExpr:
+		return "Expr column"
 	case inputModeRename:
 		return "Rename column"
 	case inputModeResize:

@@ -11,6 +11,10 @@ func (s *Sheet) OverrideColumnKind(columnIndex int, kind ValueKind) error {
 	if columnIndex < 0 || columnIndex >= len(s.Columns) {
 		return fmt.Errorf("column %d out of range", columnIndex)
 	}
+	if s.Columns[columnIndex].OverrideKind == kind {
+		return nil
+	}
+	s.pushUndo("type override")
 	s.Columns[columnIndex].OverrideKind = kind
 	s.refreshSearch()
 	return nil
@@ -24,6 +28,10 @@ func (s *Sheet) RenameColumn(columnIndex int, name string) error {
 	if name == "" {
 		return fmt.Errorf("column name cannot be empty")
 	}
+	if s.Columns[columnIndex].Name == name {
+		return nil
+	}
+	s.pushUndo("rename column")
 	s.Columns[columnIndex].Name = name
 	return nil
 }
@@ -35,6 +43,10 @@ func (s *Sheet) SetColumnWidth(columnIndex int, width int) error {
 	if width < 1 {
 		return fmt.Errorf("width must be at least 1")
 	}
+	if s.Columns[columnIndex].Width == width {
+		return nil
+	}
+	s.pushUndo("resize column")
 	s.Columns[columnIndex].Width = width
 	return nil
 }
@@ -46,6 +58,7 @@ func (s *Sheet) ToggleHidden(columnIndex int) error {
 	if !s.Columns[columnIndex].Hidden && len(s.VisibleColumnIndices()) <= 1 {
 		return fmt.Errorf("cannot hide the last visible column")
 	}
+	s.pushUndo("toggle hidden column")
 	s.Columns[columnIndex].Hidden = !s.Columns[columnIndex].Hidden
 	s.refreshSearch()
 	s.clampCursor()
@@ -53,6 +66,16 @@ func (s *Sheet) ToggleHidden(columnIndex int) error {
 }
 
 func (s *Sheet) ShowAllColumns() int {
+	hidden := 0
+	for _, col := range s.Columns {
+		if col.Hidden {
+			hidden++
+		}
+	}
+	if hidden == 0 {
+		return 0
+	}
+	s.pushUndo("show all columns")
 	count := 0
 	for i := range s.Columns {
 		if s.Columns[i].Hidden {
