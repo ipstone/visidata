@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/ipstone/visidata/go-visidata/pkg/sheet"
@@ -10,26 +11,41 @@ import (
 type inputMode string
 
 const (
-	inputModeNone          inputMode = ""
-	inputModeSearch        inputMode = "search"
-	inputModeEditCell      inputMode = "edit-cell"
-	inputModeExpr          inputMode = "expr"
-	inputModeRename        inputMode = "rename"
-	inputModeResize        inputMode = "resize"
-	inputModeRegexSelect   inputMode = "regex-select"
-	inputModeRegexUnselect inputMode = "regex-unselect"
+	inputModeNone           inputMode = ""
+	inputModeCommandPalette inputMode = "command-palette"
+	inputModeMenu           inputMode = "menu"
+	inputModeSearch         inputMode = "search"
+	inputModeEditCell       inputMode = "edit-cell"
+	inputModeExpr           inputMode = "expr"
+	inputModeRename         inputMode = "rename"
+	inputModeResize         inputMode = "resize"
+	inputModeRegexCapture   inputMode = "regex-capture"
+	inputModeRegexSplit     inputMode = "regex-split"
+	inputModeRegexSelect    inputMode = "regex-select"
+	inputModeRegexUnselect  inputMode = "regex-unselect"
 )
 
 type App struct {
-	Screen     tcell.Screen
-	Sheet      *sheet.Sheet
-	RowOffset  int
-	ColOffset  int
-	stack      []*sheet.Sheet
-	commandLog []commandLogEntry
-	mode       inputMode
-	inputValue []rune
-	colWidths  []int
+	Screen         tcell.Screen
+	Sheet          *sheet.Sheet
+	RowOffset      int
+	ColOffset      int
+	stack          []*sheet.Sheet
+	commandLog     []commandLogEntry
+	macro          []macroCommand
+	macroRecording bool
+	macroPlaying   bool
+	mode           inputMode
+	inputValue     []rune
+	paletteIndex   int
+	menuIndex      int
+	menuItemIndex  int
+	sidebarVisible bool
+	sidebarIndex   int
+	dragSelecting  bool
+	dragAnchorRow  int
+	colWidths      []int
+	theme          Theme
 }
 
 type commandLogEntry struct {
@@ -40,22 +56,36 @@ type commandLogEntry struct {
 	Detail string
 }
 
+type macroCommand struct {
+	Name  string
+	Input string
+}
+
 func New(sh *sheet.Sheet, screen tcell.Screen) *App {
+	return NewWithOptions(sh, screen, Options{})
+}
+
+func NewWithOptions(sh *sheet.Sheet, screen tcell.Screen, opts Options) *App {
 	return &App{
 		Screen:    screen,
 		Sheet:     sh,
 		stack:     []*sheet.Sheet{sh},
 		colWidths: columnWidths(sh),
+		theme:     ResolveTheme(opts.Theme),
 	}
 }
 
 func Run(sh *sheet.Sheet) error {
+	return RunWithOptions(sh, Options{})
+}
+
+func RunWithOptions(sh *sheet.Sheet, opts Options) error {
 	screen, err := tcell.NewScreen()
 	if err != nil {
 		return fmt.Errorf("create screen: %w", err)
 	}
 
-	app := New(sh, screen)
+	app := NewWithOptions(sh, screen, opts)
 	return app.Run()
 }
 
@@ -64,6 +94,7 @@ func (a *App) Run() error {
 		return fmt.Errorf("init screen: %w", err)
 	}
 	defer a.Screen.Fini()
+	a.Screen.EnableMouse()
 
 	a.Screen.Clear()
 	for {
@@ -77,6 +108,11 @@ func (a *App) Run() error {
 			if shouldQuit {
 				return nil
 			}
+		case *tcell.EventMouse:
+			shouldQuit := a.HandleMouse(event)
+			if shouldQuit {
+				return nil
+			}
 		}
 	}
 }
@@ -85,12 +121,21 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 	if a.mode != inputModeNone {
 		return a.handleInputKey(ev)
 	}
+	if a.sidebarVisible {
+		return a.handleSidebarKey(ev)
+	}
 
 	pageSize := a.pageSize()
 
 	switch ev.Key() {
 	case tcell.KeyCtrlC, tcell.KeyEscape:
 		return true
+	case tcell.KeyTab:
+		return a.executeCommand("sidebar")
+	case tcell.KeyF10:
+		a.beginMenu()
+	case tcell.KeyCtrlP:
+		a.beginCommandPalette()
 	case tcell.KeyCtrlS:
 		a.saveSuggested()
 	case tcell.KeyUp:
@@ -113,13 +158,14 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 		a.activateCurrentRow()
 	case tcell.KeyRune:
 		switch ev.Rune() {
+		case ';':
+			a.beginMenu()
+		case ':':
+			a.beginCommandPalette()
 		case 'q':
-			if a.popSheet() {
-				break
-			}
-			return true
+			return a.executeCommand("quit")
 		case '/':
-			a.beginInput(inputModeSearch, a.Sheet.SearchState.Query)
+			return a.executeCommand("search")
 		case 'h':
 			a.Sheet.MoveCursorCol(-1)
 		case 'j':
@@ -133,138 +179,121 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 		case 'G':
 			a.Sheet.SetCursorRow(len(a.Sheet.Rows) - 1)
 		case '[':
-			a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortAsc)
+			return a.executeCommand("sort-asc")
 		case ']':
-			a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortDesc)
+			return a.executeCommand("sort-desc")
 		case '=':
-			a.beginInput(inputModeExpr, "")
+			return a.executeCommand("expr-col")
 		case '&':
-			a.openJoinSheet()
-			a.recordCommand("&", "join", a.Sheet.Status)
+			return a.executeCommand("join")
 		case 'f':
-			a.pushSheet(a.Sheet.FreezeSheet())
-			a.Sheet.Status = fmt.Sprintf("freeze %s", a.Sheet.Name)
-			a.recordCommand("f", "freeze", a.Sheet.Status)
+			return a.executeCommand("freeze")
+		case 'v':
+			return a.executeCommand("graph")
+		case '*':
+			return a.executeCommand("sparkline-col")
 		case 'D':
-			a.openDedupeSheet()
-			a.recordCommand("D", "dedupe", a.Sheet.Status)
+			return a.executeCommand("dedupe")
 		case 'e':
-			a.beginEditCellInput()
+			return a.executeCommand("edit-cell")
 		case 'm':
-			a.openMeltSheet()
-			a.recordCommand("m", "melt", a.Sheet.Status)
+			return a.executeCommand("melt")
 		case 'n':
 			a.Sheet.NextMatch(1)
 		case 'N':
 			a.Sheet.NextMatch(-1)
 		case 's':
-			a.Sheet.ToggleSelected(a.Sheet.CursorRow)
+			return a.executeCommand("toggle-select")
 		case 't':
-			a.Sheet.SelectAll()
+			return a.executeCommand("select-all")
 		case 'u':
-			a.Sheet.ClearSelection()
+			return a.executeCommand("clear-selection")
 		case 'c':
-			a.Sheet.CopyCell(a.Sheet.CursorRow, a.Sheet.CursorCol)
-			a.Sheet.Status = "copied current cell"
+			return a.executeCommand("copy-cell")
 		case 'C':
-			a.Sheet.CopySelectedRowsOrCurrent()
-			a.Sheet.Status = "copied row data"
+			return a.executeCommand("copy-rows")
 		case 'd':
-			count := a.Sheet.DeleteSelectedRowsOrCurrent()
-			if count > 0 {
-				a.colWidths = columnWidths(a.Sheet)
-				a.Sheet.Status = fmt.Sprintf("deleted %d row(s)", count)
-				a.recordCommand("d", "delete", a.Sheet.Status)
-			}
+			return a.executeCommand("delete")
 		case 'S':
-			a.saveSuggested()
-			a.recordCommand("S", "save", a.Sheet.Status)
+			return a.executeCommand("save")
 		case 'F':
-			a.openFrequencySheet()
-			a.recordCommand("F", "frequency", a.Sheet.Status)
+			return a.executeCommand("frequency")
 		case 'I':
-			a.pushSheet(a.Sheet.DescribeSheet())
-			a.Sheet.Status = fmt.Sprintf("describe %s", a.Sheet.Name)
-			a.recordCommand("I", "describe", a.Sheet.Status)
+			return a.executeCommand("describe")
 		case 'W':
-			a.openPivotSheet()
-			a.recordCommand("W", "pivot", a.Sheet.Status)
+			return a.executeCommand("pivot")
 		case 'T':
-			a.pushSheet(a.Sheet.TransposeSheet())
-			a.Sheet.Status = fmt.Sprintf("transpose %s", a.Sheet.Name)
-			a.recordCommand("T", "transpose", a.Sheet.Status)
+			return a.executeCommand("transpose")
 		case 'V':
-			a.pushSheet(a.buildSheetsSheet())
-			a.Sheet.Status = fmt.Sprintf("sheets %s", a.Sheet.Name)
-			a.recordCommand("V", "sheets", a.Sheet.Status)
+			return a.executeCommand("sheets")
 		case 'M':
-			a.pushSheet(a.Sheet.ColumnsSheet())
-			a.Sheet.Status = fmt.Sprintf("columns %s", a.Sheet.Name)
-			a.recordCommand("M", "columns", a.Sheet.Status)
+			return a.executeCommand("columns")
 		case 'O':
-			a.pushSheet(a.Sheet.OptionsSheet())
-			a.Sheet.Status = fmt.Sprintf("options %s", a.Sheet.Name)
-			a.recordCommand("O", "options", a.Sheet.Status)
+			return a.executeCommand("options")
 		case 'P':
-			a.recordCommand("P", "cmdlog", "opened command log")
-			a.pushSheet(a.buildCommandLogSheet())
-			a.Sheet.Status = fmt.Sprintf("cmdlog %s", a.Sheet.Name)
+			return a.executeCommand("cmdlog")
 		case '?':
-			a.pushSheet(a.buildCommandsSheet())
-			a.Sheet.Status = fmt.Sprintf("commands %s", a.Sheet.Name)
-			a.recordCommand("?", "commands", a.Sheet.Status)
+			return a.executeCommand("commands")
 		case 'R':
-			a.redoCurrentSheet()
+			return a.executeCommand("redo")
 		case 'U':
-			a.undoCurrentSheet()
+			return a.executeCommand("undo")
 		case '~':
-			if !a.overrideColumnsMetaType(sheet.KindString) {
-				a.overrideColumnType(sheet.KindString)
-			}
+			return a.executeCommand("type-string")
 		case '#':
-			if !a.overrideColumnsMetaType(sheet.KindInt) {
-				a.overrideColumnType(sheet.KindInt)
-			}
+			return a.executeCommand("type-int")
 		case '%':
-			if !a.overrideColumnsMetaType(sheet.KindFloat) {
-				a.overrideColumnType(sheet.KindFloat)
-			}
+			return a.executeCommand("type-float")
 		case '$':
-			if !a.overrideColumnsMetaType(sheet.KindCurrency) {
-				a.overrideColumnType(sheet.KindCurrency)
-			}
+			return a.executeCommand("type-currency")
 		case '@':
-			if !a.overrideColumnsMetaType(sheet.KindDate) {
-				a.overrideColumnType(sheet.KindDate)
-			}
+			return a.executeCommand("type-date")
 		case '-':
-			if !a.toggleColumnsMetaHidden() {
-				name := a.Sheet.Columns[a.Sheet.CursorCol].Name
-				if err := a.Sheet.ToggleHidden(a.Sheet.CursorCol); err != nil {
-					a.Sheet.Status = fmt.Sprintf("hide failed: %v", err)
-				} else {
-					a.colWidths = columnWidths(a.Sheet)
-					a.Sheet.Status = fmt.Sprintf("toggled hidden for %s", name)
-				}
-			}
+			return a.executeCommand("hide-column")
 		case 'H':
-			if !a.showAllColumnsMeta() {
-				count := a.Sheet.ShowAllColumns()
-				a.colWidths = columnWidths(a.Sheet)
-				a.Sheet.Status = fmt.Sprintf("revealed %d column(s)", count)
-				if count > 0 {
-					a.recordCommand("H", "show-all-columns", a.Sheet.Status)
-				}
-			}
+			return a.executeCommand("show-all-columns")
 		case '^':
-			a.beginRenameInput()
+			return a.executeCommand("rename-col")
 		case '_':
-			a.beginResizeInput()
+			return a.executeCommand("resize-col")
+		case '{':
+			return a.executeCommand("regex-capture")
+		case '}':
+			return a.executeCommand("regex-split")
 		case '|':
-			a.beginInput(inputModeRegexSelect, "")
+			return a.executeCommand("regex-select")
 		case '\\':
-			a.beginInput(inputModeRegexUnselect, "")
+			return a.executeCommand("regex-unselect")
+		case 'z':
+			return a.executeCommand("macro-record")
+		case 'Z':
+			return a.executeCommand("macro-play")
 		}
+	}
+
+	a.ensureVisible(a.size())
+	return false
+}
+
+func (a *App) HandleMouse(ev *tcell.EventMouse) bool {
+	if ev == nil {
+		return false
+	}
+	if a.mode != inputModeNone {
+		return false
+	}
+
+	x, y := ev.Position()
+	buttons := ev.Buttons()
+	switch {
+	case buttons&tcell.WheelUp != 0:
+		a.Sheet.MoveCursorRow(-max(1, a.pageSize()/4))
+	case buttons&tcell.WheelDown != 0:
+		a.Sheet.MoveCursorRow(max(1, a.pageSize()/4))
+	case buttons&tcell.Button1 != 0:
+		a.handleMousePrimary(x, y)
+	case buttons == tcell.ButtonNone:
+		a.dragSelecting = false
 	}
 
 	a.ensureVisible(a.size())
@@ -307,6 +336,16 @@ func (a *App) openFrequencySheet() {
 	}
 	a.pushSheet(sh)
 	a.Sheet.Status = fmt.Sprintf("frequency %s", a.Sheet.Name)
+}
+
+func (a *App) openGraphSheet() {
+	sh, err := a.Sheet.GraphSheet(a.Sheet.CursorCol)
+	if err != nil {
+		a.Sheet.Status = fmt.Sprintf("graph failed: %v", err)
+		return
+	}
+	a.pushSheet(sh)
+	a.Sheet.Status = fmt.Sprintf("graph %s", a.Sheet.Name)
 }
 
 func (a *App) openJoinSheet() {
@@ -530,6 +569,9 @@ func (a *App) recordCommand(keys, name, detail string) {
 		Detail: detail,
 	}
 	a.commandLog = append(a.commandLog, entry)
+	if !isInputBackedCommand(name) {
+		a.captureMacro(name, "")
+	}
 }
 
 func (a *App) undoTarget() (*sheet.Sheet, bool) {
@@ -634,7 +676,265 @@ func (a *App) openCurrentFrequencyValueSheet() {
 	a.Sheet.Status = fmt.Sprintf("filter %s=%s", source.Columns[columnIndex].Name, value)
 }
 
+func (a *App) beginCommandPalette() {
+	a.mode = inputModeCommandPalette
+	a.inputValue = nil
+	a.paletteIndex = 0
+}
+
+func (a *App) handleCommandPaletteKey(ev *tcell.EventKey) bool {
+	switch ev.Key() {
+	case tcell.KeyEscape:
+		a.mode = inputModeNone
+		a.inputValue = nil
+		a.paletteIndex = 0
+		return false
+	case tcell.KeyEnter:
+		matches := a.commandPaletteMatches()
+		if len(matches) == 0 {
+			a.Sheet.Status = "no commands matched"
+			a.mode = inputModeNone
+			a.inputValue = nil
+			a.paletteIndex = 0
+			return false
+		}
+		selected := matches[a.paletteSelection(matches)]
+		a.mode = inputModeNone
+		a.inputValue = nil
+		a.paletteIndex = 0
+		return a.executeCommand(selected.Name)
+	case tcell.KeyUp:
+		a.movePaletteSelection(-1)
+	case tcell.KeyDown:
+		a.movePaletteSelection(1)
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		if len(a.inputValue) > 0 {
+			a.inputValue = a.inputValue[:len(a.inputValue)-1]
+			a.clampPaletteSelection()
+		}
+	case tcell.KeyRune:
+		a.inputValue = append(a.inputValue, ev.Rune())
+		a.clampPaletteSelection()
+	}
+
+	a.ensureVisible(a.size())
+	return false
+}
+
+func (a *App) executeCommand(name string) bool {
+	switch name {
+	case "command-palette":
+		a.beginCommandPalette()
+	case "sidebar":
+		a.toggleSidebar()
+		if a.sidebarVisible {
+			a.Sheet.Status = "sidebar opened"
+		} else {
+			a.Sheet.Status = "sidebar closed"
+		}
+		a.recordCommand("Tab", "sidebar", a.Sheet.Status)
+	case "quit":
+		if a.popSheet() {
+			return false
+		}
+		return true
+	case "open-row":
+		a.activateCurrentRow()
+	case "search":
+		a.beginInput(inputModeSearch, a.Sheet.SearchState.Query)
+	case "sort-asc":
+		a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortAsc)
+		a.recordCommand("[", "sort-asc", "sorted ascending")
+	case "sort-desc":
+		a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortDesc)
+		a.recordCommand("]", "sort-desc", "sorted descending")
+	case "expr-col":
+		a.beginInput(inputModeExpr, "")
+	case "join":
+		a.openJoinSheet()
+		a.recordCommand("&", "join", a.Sheet.Status)
+	case "freeze":
+		a.pushSheet(a.Sheet.FreezeSheet())
+		a.Sheet.Status = fmt.Sprintf("freeze %s", a.Sheet.Name)
+		a.recordCommand("f", "freeze", a.Sheet.Status)
+	case "graph":
+		a.openGraphSheet()
+		a.recordCommand("v", "graph", a.Sheet.Status)
+	case "sparkline-col":
+		name, err := a.Sheet.AddSparklineColumn()
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("sparkline failed: %v", err)
+			break
+		}
+		a.colWidths = columnWidths(a.Sheet)
+		a.Sheet.Status = fmt.Sprintf("added sparkline column %s", name)
+		a.recordCommand("*", "sparkline-col", a.Sheet.Status)
+	case "melt":
+		a.openMeltSheet()
+		a.recordCommand("m", "melt", a.Sheet.Status)
+	case "dedupe":
+		a.openDedupeSheet()
+		a.recordCommand("D", "dedupe", a.Sheet.Status)
+	case "frequency":
+		a.openFrequencySheet()
+		a.recordCommand("F", "frequency", a.Sheet.Status)
+	case "describe":
+		a.pushSheet(a.Sheet.DescribeSheet())
+		a.Sheet.Status = fmt.Sprintf("describe %s", a.Sheet.Name)
+		a.recordCommand("I", "describe", a.Sheet.Status)
+	case "pivot":
+		a.openPivotSheet()
+		a.recordCommand("W", "pivot", a.Sheet.Status)
+	case "transpose":
+		a.pushSheet(a.Sheet.TransposeSheet())
+		a.Sheet.Status = fmt.Sprintf("transpose %s", a.Sheet.Name)
+		a.recordCommand("T", "transpose", a.Sheet.Status)
+	case "sheets":
+		a.pushSheet(a.buildSheetsSheet())
+		a.Sheet.Status = fmt.Sprintf("sheets %s", a.Sheet.Name)
+		a.recordCommand("V", "sheets", a.Sheet.Status)
+	case "columns":
+		a.pushSheet(a.Sheet.ColumnsSheet())
+		a.Sheet.Status = fmt.Sprintf("columns %s", a.Sheet.Name)
+		a.recordCommand("M", "columns", a.Sheet.Status)
+	case "options":
+		a.pushSheet(a.Sheet.OptionsSheet())
+		a.Sheet.Status = fmt.Sprintf("options %s", a.Sheet.Name)
+		a.recordCommand("O", "options", a.Sheet.Status)
+	case "cmdlog":
+		a.recordCommand("P", "cmdlog", "opened command log")
+		a.pushSheet(a.buildCommandLogSheet())
+		a.Sheet.Status = fmt.Sprintf("cmdlog %s", a.Sheet.Name)
+	case "commands":
+		a.pushSheet(a.buildCommandsSheet())
+		a.Sheet.Status = fmt.Sprintf("commands %s", a.Sheet.Name)
+		a.recordCommand("?", "commands", a.Sheet.Status)
+	case "redo":
+		a.redoCurrentSheet()
+	case "undo":
+		a.undoCurrentSheet()
+	case "toggle-select":
+		a.Sheet.ToggleSelected(a.Sheet.CursorRow)
+		a.recordCommand("s", "toggle-select", "toggled row selection")
+	case "select-all":
+		a.Sheet.SelectAll()
+		a.recordCommand("t", "select-all", "selected all rows")
+	case "clear-selection":
+		a.Sheet.ClearSelection()
+		a.recordCommand("u", "clear-selection", "cleared row selection")
+	case "copy-cell":
+		a.Sheet.CopyCell(a.Sheet.CursorRow, a.Sheet.CursorCol)
+		a.Sheet.Status = "copied current cell"
+		a.recordCommand("c", "copy-cell", a.Sheet.Status)
+	case "copy-rows":
+		a.Sheet.CopySelectedRowsOrCurrent()
+		a.Sheet.Status = "copied row data"
+		a.recordCommand("C", "copy-rows", a.Sheet.Status)
+	case "edit-cell":
+		a.beginEditCellInput()
+	case "delete":
+		count := a.Sheet.DeleteSelectedRowsOrCurrent()
+		if count > 0 {
+			a.colWidths = columnWidths(a.Sheet)
+			a.Sheet.Status = fmt.Sprintf("deleted %d row(s)", count)
+			a.recordCommand("d", "delete", a.Sheet.Status)
+		}
+	case "save":
+		a.saveSuggested()
+		a.recordCommand("S", "save", a.Sheet.Status)
+	case "hide-column":
+		if !a.toggleColumnsMetaHidden() {
+			name := a.Sheet.Columns[a.Sheet.CursorCol].Name
+			if err := a.Sheet.ToggleHidden(a.Sheet.CursorCol); err != nil {
+				a.Sheet.Status = fmt.Sprintf("hide failed: %v", err)
+			} else {
+				a.colWidths = columnWidths(a.Sheet)
+				a.Sheet.Status = fmt.Sprintf("toggled hidden for %s", name)
+				a.recordCommand("-", "hide-column", a.Sheet.Status)
+			}
+		}
+	case "show-all-columns":
+		if !a.showAllColumnsMeta() {
+			count := a.Sheet.ShowAllColumns()
+			a.colWidths = columnWidths(a.Sheet)
+			a.Sheet.Status = fmt.Sprintf("revealed %d column(s)", count)
+			if count > 0 {
+				a.recordCommand("H", "show-all-columns", a.Sheet.Status)
+			}
+		}
+	case "rename-col":
+		a.beginRenameInput()
+	case "resize-col":
+		a.beginResizeInput()
+	case "regex-capture":
+		a.beginInput(inputModeRegexCapture, "")
+	case "regex-split":
+		a.beginInput(inputModeRegexSplit, "")
+	case "type-string":
+		if !a.overrideColumnsMetaType(sheet.KindString) {
+			a.overrideColumnType(sheet.KindString)
+		}
+	case "type-int":
+		if !a.overrideColumnsMetaType(sheet.KindInt) {
+			a.overrideColumnType(sheet.KindInt)
+		}
+	case "type-float":
+		if !a.overrideColumnsMetaType(sheet.KindFloat) {
+			a.overrideColumnType(sheet.KindFloat)
+		}
+	case "type-currency":
+		if !a.overrideColumnsMetaType(sheet.KindCurrency) {
+			a.overrideColumnType(sheet.KindCurrency)
+		}
+	case "type-date":
+		if !a.overrideColumnsMetaType(sheet.KindDate) {
+			a.overrideColumnType(sheet.KindDate)
+		}
+	case "regex-select":
+		a.beginInput(inputModeRegexSelect, "")
+	case "regex-unselect":
+		a.beginInput(inputModeRegexUnselect, "")
+	case "macro-record":
+		a.toggleMacroRecording()
+	case "macro-play":
+		return a.replayMacro()
+	default:
+		a.Sheet.Status = fmt.Sprintf("unknown command %s", name)
+	}
+	return false
+}
+
+func (a *App) movePaletteSelection(delta int) {
+	matches := a.commandPaletteMatches()
+	if len(matches) == 0 {
+		a.paletteIndex = 0
+		return
+	}
+	a.paletteIndex = (a.paletteSelection(matches) + delta + len(matches)) % len(matches)
+}
+
+func (a *App) clampPaletteSelection() {
+	matches := a.commandPaletteMatches()
+	if len(matches) == 0 {
+		a.paletteIndex = 0
+		return
+	}
+	if a.paletteIndex >= len(matches) {
+		a.paletteIndex = len(matches) - 1
+	}
+	if a.paletteIndex < 0 {
+		a.paletteIndex = 0
+	}
+}
+
 func (a *App) handleInputKey(ev *tcell.EventKey) bool {
+	if a.mode == inputModeMenu {
+		return a.handleMenuKey(ev)
+	}
+	if a.mode == inputModeCommandPalette {
+		return a.handleCommandPaletteKey(ev)
+	}
+
 	switch ev.Key() {
 	case tcell.KeyEscape:
 		if a.mode == inputModeSearch {
@@ -683,6 +983,9 @@ func (a *App) saveSuggested() {
 func (a *App) beginInput(mode inputMode, initial string) {
 	a.mode = mode
 	a.inputValue = []rune(initial)
+	a.paletteIndex = 0
+	a.menuIndex = 0
+	a.menuItemIndex = 0
 }
 
 func (a *App) commitInput() {
@@ -695,6 +998,7 @@ func (a *App) commitInput() {
 	case inputModeSearch:
 		a.Sheet.Search(value)
 		a.recordCommand("/", "search", fmt.Sprintf("search %q", value))
+		a.captureMacro("search", value)
 	case inputModeEditCell:
 		if err := a.Sheet.SetCell(a.Sheet.CursorRow, a.Sheet.CursorCol, value); err != nil {
 			a.Sheet.Status = fmt.Sprintf("edit failed: %v", err)
@@ -703,6 +1007,7 @@ func (a *App) commitInput() {
 		a.colWidths = columnWidths(a.Sheet)
 		a.Sheet.Status = fmt.Sprintf("edited %s row %d", a.Sheet.Columns[a.Sheet.CursorCol].Name, a.Sheet.CursorRow+1)
 		a.recordCommand("e", "edit-cell", a.Sheet.Status)
+		a.captureMacro("edit-cell", value)
 	case inputModeExpr:
 		name, err := a.Sheet.AddExprColumn(value)
 		if err != nil {
@@ -712,6 +1017,7 @@ func (a *App) commitInput() {
 		a.colWidths = columnWidths(a.Sheet)
 		a.Sheet.Status = fmt.Sprintf("added expression column %s", name)
 		a.recordCommand("=", "expr-col", a.Sheet.Status)
+		a.captureMacro("expr-col", value)
 	case inputModeRename:
 		if source, columnIndex, ok := a.columnsMetaTarget(); ok {
 			if err := source.RenameColumn(columnIndex, value); err != nil {
@@ -720,6 +1026,7 @@ func (a *App) commitInput() {
 			}
 			a.refreshColumnsMeta(fmt.Sprintf("renamed column to %s", source.Columns[columnIndex].Name))
 			a.recordCommand("^", "rename-col", a.Sheet.Status)
+			a.captureMacro("rename-col", value)
 			return
 		}
 		if err := a.Sheet.RenameColumn(a.Sheet.CursorCol, value); err != nil {
@@ -729,6 +1036,7 @@ func (a *App) commitInput() {
 		a.colWidths = columnWidths(a.Sheet)
 		a.Sheet.Status = fmt.Sprintf("renamed column to %s", a.Sheet.Columns[a.Sheet.CursorCol].Name)
 		a.recordCommand("^", "rename-col", a.Sheet.Status)
+		a.captureMacro("rename-col", value)
 	case inputModeResize:
 		width, err := sheet.ParseWidth(value)
 		if err != nil {
@@ -742,6 +1050,7 @@ func (a *App) commitInput() {
 			}
 			a.refreshColumnsMeta(fmt.Sprintf("set width %d for %s", width, source.Columns[columnIndex].Name))
 			a.recordCommand("_", "resize-col", a.Sheet.Status)
+			a.captureMacro("resize-col", value)
 			return
 		}
 		if err := a.Sheet.SetColumnWidth(a.Sheet.CursorCol, width); err != nil {
@@ -751,6 +1060,27 @@ func (a *App) commitInput() {
 		a.colWidths = columnWidths(a.Sheet)
 		a.Sheet.Status = fmt.Sprintf("set width %d for %s", width, a.Sheet.Columns[a.Sheet.CursorCol].Name)
 		a.recordCommand("_", "resize-col", a.Sheet.Status)
+		a.captureMacro("resize-col", value)
+	case inputModeRegexCapture:
+		names, err := a.Sheet.AddRegexCaptureColumns(a.Sheet.CursorCol, value)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("capture failed: %v", err)
+			return
+		}
+		a.colWidths = columnWidths(a.Sheet)
+		a.Sheet.Status = fmt.Sprintf("added capture columns %s", strings.Join(names, ", "))
+		a.recordCommand("{", "regex-capture", a.Sheet.Status)
+		a.captureMacro("regex-capture", value)
+	case inputModeRegexSplit:
+		names, err := a.Sheet.AddRegexSplitColumns(a.Sheet.CursorCol, value)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("split failed: %v", err)
+			return
+		}
+		a.colWidths = columnWidths(a.Sheet)
+		a.Sheet.Status = fmt.Sprintf("added split columns %s", strings.Join(names, ", "))
+		a.recordCommand("}", "regex-split", a.Sheet.Status)
+		a.captureMacro("regex-split", value)
 	case inputModeRegexSelect:
 		count, err := a.Sheet.SelectByRegex(a.Sheet.CursorCol, value, false)
 		if err != nil {
@@ -759,6 +1089,7 @@ func (a *App) commitInput() {
 		}
 		a.Sheet.Status = fmt.Sprintf("selected %d row(s)", count)
 		a.recordCommand("|", "regex-select", a.Sheet.Status)
+		a.captureMacro("regex-select", value)
 	case inputModeRegexUnselect:
 		count, err := a.Sheet.UnselectByRegex(a.Sheet.CursorCol, value, false)
 		if err != nil {
@@ -767,6 +1098,7 @@ func (a *App) commitInput() {
 		}
 		a.Sheet.Status = fmt.Sprintf("unselected %d row(s)", count)
 		a.recordCommand("\\", "regex-unselect", a.Sheet.Status)
+		a.captureMacro("regex-unselect", value)
 	}
 }
 

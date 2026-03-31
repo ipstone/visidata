@@ -218,6 +218,45 @@ func TestHandleKeyColumnOpsAndRegexSelection(t *testing.T) {
 	}
 }
 
+func TestHandleKeyAddsRegexDerivedColumns(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"person", "coord"})
+	sh.AddRow([]string{"Alice 30", "10,20"})
+	sh.AddRow([]string{"Bob 25", "5,8,13"})
+
+	app := New(sh, nil)
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '{', tcell.ModNone))
+	for _, r := range `^(\w+)\s+(\d+)$` {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := len(sh.Columns); got != 4 {
+		t.Fatalf("len(columns) after capture = %d, want 4", got)
+	}
+	if got := sh.Cell(0, 2); got != "Alice" {
+		t.Fatalf("capture value = %q, want Alice", got)
+	}
+	if got := sh.Cell(1, 3); got != "25" {
+		t.Fatalf("capture age = %q, want 25", got)
+	}
+
+	sh.SetCursorCol(1)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '}', tcell.ModNone))
+	for _, r := range `,` {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := len(sh.Columns); got != 7 {
+		t.Fatalf("len(columns) after split = %d, want 7", got)
+	}
+	if got := sh.Cell(0, 6); got != "" {
+		t.Fatalf("missing split value = %q, want empty", got)
+	}
+	if got := sh.Cell(1, 6); got != "13" {
+		t.Fatalf("third split value = %q, want 13", got)
+	}
+}
+
 func TestHandleKeyAddsExpressionColumn(t *testing.T) {
 	sh := sheet.New("orders.csv", "/tmp/orders.csv", []string{"qty", "price"})
 	sh.AddRow([]string{"2", "1.5"})
@@ -248,6 +287,29 @@ func TestHandleKeyAddsExpressionColumn(t *testing.T) {
 	}
 	if got := sh.CursorCol; got != 2 {
 		t.Fatalf("cursor col = %d, want 2", got)
+	}
+}
+
+func TestHandleKeyAddsSparklineColumn(t *testing.T) {
+	sh := sheet.New("metrics.csv", "/tmp/metrics.csv", []string{"city", "a", "b", "c"})
+	sh.AddRow([]string{"Tokyo", "1", "5", "9"})
+	sh.AddRow([]string{"Osaka", "3", "3", "3"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '*', tcell.ModNone))
+
+	if got := len(sh.Columns); got != 5 {
+		t.Fatalf("len(columns) = %d, want 5", got)
+	}
+	if got := sh.Columns[4].Name; got != "sparkline" {
+		t.Fatalf("sparkline column name = %q, want sparkline", got)
+	}
+	if got := sh.Cell(0, 4); got != "▁▅█" {
+		t.Fatalf("sparkline value = %q, want ▁▅█", got)
+	}
+	if got := sh.Cell(1, 4); got != "▅▅▅" {
+		t.Fatalf("flat sparkline value = %q, want ▅▅▅", got)
 	}
 }
 
@@ -343,6 +405,228 @@ func TestHandleKeyOpensCommandLogSheet(t *testing.T) {
 	}
 	if got := app.Sheet.Cell(1, 2); got != "cmdlog" {
 		t.Fatalf("second logged command = %q, want cmdlog", got)
+	}
+}
+
+func TestCommandPaletteExecutesSelectedCommand(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"city", "age"})
+	sh.AddRow([]string{"Tokyo", "30"})
+	sh.AddRow([]string{"Tokyo", "20"})
+	sh.AddRow([]string{"Osaka", "10"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, ':', tcell.ModNone))
+	for _, r := range "freq" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+
+	if got := app.Sheet.Name; got != "freq:people.csv:city" {
+		t.Fatalf("sheet name after palette frequency = %q, want freq:people.csv:city", got)
+	}
+	if got := app.Sheet.MetaKind; got != "freq" {
+		t.Fatalf("meta kind = %q, want freq", got)
+	}
+}
+
+func TestCommandPaletteCanLaunchInputCommand(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyCtrlP, 0, tcell.ModNone))
+	for _, r := range "rename" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	for _, r := range "person" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+
+	if got := sh.Columns[0].Name; got != "person" {
+		t.Fatalf("renamed column = %q, want person", got)
+	}
+}
+
+func TestDrawRendersCommandPaletteOverlay(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.InferColumnKinds()
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(80, 12)
+
+	app := New(sh, screen)
+	app.beginCommandPalette()
+	for _, r := range "freq" {
+		app.handleCommandPaletteKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.Draw()
+
+	lines := snapshot(screen, 80, 12)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"Command Palette: freq",
+		"frequency",
+		"[F]",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("screen missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestMenuExecutesSelectedCommand(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, ';', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.Cell(0, 0); got != "Bob" {
+		t.Fatalf("first row after menu sort desc = %q, want Bob", got)
+	}
+}
+
+func TestDrawRendersMenuOverlay(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.InferColumnKinds()
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(80, 12)
+
+	app := New(sh, screen)
+	app.beginMenu()
+	app.Draw()
+
+	lines := snapshot(screen, 80, 12)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		" File ",
+		" Edit ",
+		"> Save",
+		"Quit",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("screen missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestHandleMouseClickMovesCursor(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	secondColX := rowPrefixWidth + app.colWidths[0] + 3 + 1
+	app.HandleMouse(tcell.NewEventMouse(secondColX, 4, tcell.Button1, 0))
+	app.HandleMouse(tcell.NewEventMouse(secondColX, 4, tcell.ButtonNone, 0))
+
+	if sh.CursorRow != 1 || sh.CursorCol != 1 {
+		t.Fatalf("cursor = (%d,%d), want (1,1)", sh.CursorRow, sh.CursorCol)
+	}
+}
+
+func TestHandleMouseWheelScrollsRows(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name"})
+	for _, name := range []string{"Alice", "Bob", "Carol", "Dave", "Eve", "Frank"} {
+		sh.AddRow([]string{name})
+	}
+
+	app := New(sh, nil)
+	app.HandleMouse(tcell.NewEventMouse(1, 4, tcell.WheelDown, 0))
+	if sh.CursorRow == 0 {
+		t.Fatalf("expected wheel down to move cursor, got row %d", sh.CursorRow)
+	}
+}
+
+func TestHandleMouseDragSelectsRowRange(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name"})
+	for _, name := range []string{"Alice", "Bob", "Carol", "Dave"} {
+		sh.AddRow([]string{name})
+	}
+
+	app := New(sh, nil)
+	x := rowPrefixWidth + 1
+	app.HandleMouse(tcell.NewEventMouse(x, 3, tcell.Button1, 0))
+	app.HandleMouse(tcell.NewEventMouse(x, 5, tcell.Button1, 0))
+	app.HandleMouse(tcell.NewEventMouse(x, 5, tcell.ButtonNone, 0))
+
+	if got := sh.SelectedCount(); got != 3 {
+		t.Fatalf("SelectedCount = %d, want 3", got)
+	}
+	for _, row := range []int{0, 1, 2} {
+		if !sh.IsSelected(row) {
+			t.Fatalf("expected row %d to be selected", row)
+		}
+	}
+}
+
+func TestMacroReplayReappliesRecordedCommand(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age"})
+	sh.AddRow([]string{"Alice", "30"})
+	sh.AddRow([]string{"Bob", "20"})
+	sh.InferColumnKinds()
+	sh.SetCursorCol(1)
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '[', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'U', tcell.ModNone))
+	if got := sh.Cell(0, 0); got != "Alice" {
+		t.Fatalf("first row after undo = %q, want Alice", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'Z', tcell.ModNone))
+	if got := sh.Cell(0, 0); got != "Bob" {
+		t.Fatalf("first row after macro replay = %q, want Bob", got)
+	}
+}
+
+func TestMacroReplayPreservesInputCommands(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "city"})
+	sh.AddRow([]string{"Alice", "Tokyo"})
+	sh.AddRow([]string{"Bob", "Osaka"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '/', tcell.ModNone))
+	for _, r := range "osaka" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
+
+	sh.ClearSearch()
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'Z', tcell.ModNone))
+	if got := sh.SearchState.Query; got != "osaka" {
+		t.Fatalf("search query after macro replay = %q, want osaka", got)
+	}
+	if len(sh.SearchState.Matches) == 0 {
+		t.Fatal("expected replayed search to restore matches")
 	}
 }
 
@@ -583,6 +867,67 @@ func TestHandleKeyOpensMetaSheetsAndSelectsStackEntry(t *testing.T) {
 	}
 }
 
+func TestHandleKeySidebarSwitchesToEarlierSheet(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"city", "age"})
+	sh.AddRow([]string{"Tokyo", "30"})
+	sh.AddRow([]string{"Tokyo", "20"})
+	sh.AddRow([]string{"Osaka", "10"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'F', tcell.ModNone))
+	if got := app.Sheet.Name; got != "freq:people.csv:city" {
+		t.Fatalf("sheet name after frequency = %q, want freq:people.csv:city", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+
+	if app.sidebarVisible {
+		t.Fatal("expected sidebar to close after switching sheets")
+	}
+	if got := app.Sheet.Name; got != "people.csv" {
+		t.Fatalf("sheet after sidebar switch = %q, want people.csv", got)
+	}
+	if len(app.stack) != 1 {
+		t.Fatalf("stack depth after sidebar switch = %d, want 1", len(app.stack))
+	}
+}
+
+func TestDrawRendersSidebar(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"city", "age"})
+	sh.AddRow([]string{"Tokyo", "30"})
+	sh.AddRow([]string{"Tokyo", "20"})
+	sh.AddRow([]string{"Osaka", "10"})
+	sh.InferColumnKinds()
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(100, 12)
+
+	app := New(sh, screen)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'F', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
+	app.Draw()
+
+	lines := snapshot(screen, 100, 12)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		" Sheets ",
+		"people.csv",
+		"freq:people.csv:city",
+		"sidebar",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("screen missing %q:\n%s", want, joined)
+		}
+	}
+}
+
 func TestHandleKeyEditsColumnsMetasheetSource(t *testing.T) {
 	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
 	sh.AddRow([]string{"Alice", "30", "Tokyo"})
@@ -810,6 +1155,66 @@ func TestDrawRendersEditCellInputPrompt(t *testing.T) {
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "Edit cell: 30") {
 		t.Fatalf("screen missing edit prompt:\n%s", joined)
+	}
+}
+
+func TestHandleKeyOpensGraphSheet(t *testing.T) {
+	sh := sheet.New("sales.csv", "/tmp/sales.csv", []string{"dept", "amount"})
+	sh.AddRow([]string{"A", "10"})
+	sh.AddRow([]string{"B", "20"})
+	sh.AddRow([]string{"C", "15"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'v', tcell.ModNone))
+
+	if got := app.Sheet.MetaKind; got != "graph" {
+		t.Fatalf("meta kind = %q, want graph", got)
+	}
+	if app.Sheet.Graph == nil {
+		t.Fatal("expected graph metadata")
+	}
+	if got := app.Sheet.Graph.Kind; got != sheet.GraphBar {
+		t.Fatalf("graph kind = %s, want bar", got)
+	}
+	if got := app.Sheet.Name; got != "graph:sales.csv:amount" {
+		t.Fatalf("graph sheet name = %q, want graph:sales.csv:amount", got)
+	}
+}
+
+func TestDrawRendersGraphCanvas(t *testing.T) {
+	sh := sheet.New("sales.csv", "/tmp/sales.csv", []string{"dept", "amount"})
+	sh.AddRow([]string{"A", "10"})
+	sh.AddRow([]string{"B", "20"})
+	sh.AddRow([]string{"C", "15"})
+	sh.InferColumnKinds()
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(200, 12)
+
+	app := New(sh, screen)
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'v', tcell.ModNone))
+	app.Draw()
+
+	lines := snapshot(screen, 200, 12)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"graph:sales.csv:amount: 3 point(s) [bar]",
+		"amount by dept [bar]",
+		"graph bar",
+		"x dept",
+		"y amount",
+		"point 1/3",
+		"dept [A .. C]",
+		"@",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("screen missing %q:\n%s", want, joined)
+		}
 	}
 }
 

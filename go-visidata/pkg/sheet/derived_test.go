@@ -276,6 +276,90 @@ func TestDescribeSheet(t *testing.T) {
 	}
 }
 
+func TestGraphSheetBuildsBarChartFromCategoryAndNumericColumns(t *testing.T) {
+	sh := New("sales.csv", "/tmp/sales.csv", []string{"dept", "amount"})
+	sh.AddRow([]string{"A", "1.50"})
+	sh.AddRow([]string{"B", "2.25"})
+	sh.AddRow([]string{"C", "3.75"})
+	sh.InferColumnKinds()
+
+	graph, err := sh.GraphSheet(0)
+	if err != nil {
+		t.Fatalf("GraphSheet returned error: %v", err)
+	}
+	if graph.Graph == nil {
+		t.Fatal("expected graph metadata")
+	}
+	if got := graph.Graph.Kind; got != GraphBar {
+		t.Fatalf("graph kind = %s, want bar", got)
+	}
+	if got := graph.Graph.XLabel; got != "dept" {
+		t.Fatalf("x label = %q, want dept", got)
+	}
+	if got := graph.Graph.YLabel; got != "amount" {
+		t.Fatalf("y label = %q, want amount", got)
+	}
+	if got := graph.Cell(1, 0); got != "B" {
+		t.Fatalf("second graph label = %q, want B", got)
+	}
+	if got := graph.Cell(2, 1); got != "3.75" {
+		t.Fatalf("third graph value = %q, want 3.75", got)
+	}
+}
+
+func TestGraphSheetBuildsLineChartFromSingleNumericColumn(t *testing.T) {
+	sh := New("metrics.csv", "/tmp/metrics.csv", []string{"name", "score"})
+	sh.AddRow([]string{"alpha", "10"})
+	sh.AddRow([]string{"beta", "30"})
+	sh.AddRow([]string{"gamma", "20"})
+	sh.InferColumnKinds()
+
+	graph, err := sh.GraphSheet(1)
+	if err != nil {
+		t.Fatalf("GraphSheet returned error: %v", err)
+	}
+	if graph.Graph == nil {
+		t.Fatal("expected graph metadata")
+	}
+	if got := graph.Graph.Kind; got != GraphLine {
+		t.Fatalf("graph kind = %s, want line", got)
+	}
+	if got := graph.Graph.Points[1].X; got != 2 {
+		t.Fatalf("second point x = %.0f, want 2", got)
+	}
+	if got := graph.Graph.Points[1].Y; got != 30 {
+		t.Fatalf("second point y = %.0f, want 30", got)
+	}
+}
+
+func TestGraphSheetBuildsScatterPlotFromTwoNumericColumns(t *testing.T) {
+	sh := New("points.csv", "/tmp/points.csv", []string{"x", "y", "label"})
+	sh.AddRow([]string{"1", "5", "A"})
+	sh.AddRow([]string{"2", "8", "B"})
+	sh.AddRow([]string{"4", "13", "C"})
+	sh.InferColumnKinds()
+
+	graph, err := sh.GraphSheet(0)
+	if err != nil {
+		t.Fatalf("GraphSheet returned error: %v", err)
+	}
+	if graph.Graph == nil {
+		t.Fatal("expected graph metadata")
+	}
+	if got := graph.Graph.Kind; got != GraphScatter {
+		t.Fatalf("graph kind = %s, want scatter", got)
+	}
+	if got := graph.Graph.XLabel; got != "x" {
+		t.Fatalf("x label = %q, want x", got)
+	}
+	if got := graph.Graph.YLabel; got != "y" {
+		t.Fatalf("y label = %q, want y", got)
+	}
+	if got := graph.Cell(2, 2); got != "13" {
+		t.Fatalf("third graph y = %q, want 13", got)
+	}
+}
+
 func TestTransposeSheetUsesVisibleColumns(t *testing.T) {
 	sh := New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
 	sh.AddRow([]string{"Alice", "30", "Tokyo"})

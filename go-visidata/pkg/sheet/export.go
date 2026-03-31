@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/BurntSushi/toml"
+	"github.com/xuri/excelize/v2"
+	"gopkg.in/yaml.v3"
 )
 
 func (s *Sheet) Export(path string) error {
@@ -22,6 +26,12 @@ func (s *Sheet) Export(path string) error {
 		return s.writeDelimited(file, '\t')
 	case ".json":
 		return s.writeJSON(file)
+	case ".toml":
+		return s.writeTOML(file)
+	case ".xlsx":
+		return s.writeXLSX(file)
+	case ".yaml", ".yml":
+		return s.writeYAML(file)
 	default:
 		return s.writeDelimited(file, ',')
 	}
@@ -63,6 +73,12 @@ func (s *Sheet) suggestedExtension() string {
 		return ".tsv"
 	case ".json", ".jsonl", ".ndjson", ".ldjson":
 		return ".json"
+	case ".toml":
+		return ".toml"
+	case ".xlsx":
+		return ".xlsx"
+	case ".yaml", ".yml":
+		return ".yaml"
 	default:
 		return ".csv"
 	}
@@ -72,17 +88,12 @@ func (s *Sheet) writeDelimited(file *os.File, comma rune) error {
 	writer := csv.NewWriter(file)
 	writer.Comma = comma
 
-	cols := s.VisibleColumnIndices()
-	header := make([]string, len(cols))
-	for i, colIndex := range cols {
-		header[i] = s.Columns[colIndex].Name
-	}
+	header, rows := s.exportTableStrings()
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("write header: %w", err)
 	}
-	for _, row := range s.Rows {
-		record := visibleRowValues(row, cols)
-		if err := writer.Write(record); err != nil {
+	for _, row := range rows {
+		if err := writer.Write(row); err != nil {
 			return fmt.Errorf("write row: %w", err)
 		}
 	}
@@ -94,6 +105,57 @@ func (s *Sheet) writeDelimited(file *os.File, comma rune) error {
 }
 
 func (s *Sheet) writeJSON(file *os.File) error {
+	rows := s.exportRows()
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(rows); err != nil {
+		return fmt.Errorf("encode json export: %w", err)
+	}
+	return nil
+}
+
+func (s *Sheet) writeYAML(file *os.File) error {
+	encoder := yaml.NewEncoder(file)
+	defer encoder.Close()
+	if err := encoder.Encode(s.exportRows()); err != nil {
+		return fmt.Errorf("encode yaml export: %w", err)
+	}
+	return nil
+}
+
+func (s *Sheet) writeTOML(file *os.File) error {
+	payload := map[string]any{"rows": s.exportRows()}
+	if err := toml.NewEncoder(file).Encode(payload); err != nil {
+		return fmt.Errorf("encode toml export: %w", err)
+	}
+	return nil
+}
+
+func (s *Sheet) writeXLSX(file *os.File) error {
+	workbook := excelize.NewFile()
+	defer workbook.Close()
+
+	sheetName := workbook.GetSheetName(0)
+	header, rows := s.exportTableTyped()
+	for rowIndex, row := range append([][]any{header}, rows...) {
+		for colIndex, value := range row {
+			cell, err := excelize.CoordinatesToCellName(colIndex+1, rowIndex+1)
+			if err != nil {
+				return fmt.Errorf("xlsx cell coordinates: %w", err)
+			}
+			if err := workbook.SetCellValue(sheetName, cell, value); err != nil {
+				return fmt.Errorf("xlsx write cell %s: %w", cell, err)
+			}
+		}
+	}
+
+	if err := workbook.Write(file); err != nil {
+		return fmt.Errorf("write xlsx export: %w", err)
+	}
+	return nil
+}
+
+func (s *Sheet) exportRows() []map[string]any {
 	rows := make([]map[string]any, 0, len(s.Rows))
 	cols := s.VisibleColumnIndices()
 	for _, row := range s.Rows {
@@ -104,13 +166,37 @@ func (s *Sheet) writeJSON(file *os.File) error {
 		}
 		rows = append(rows, record)
 	}
+	return rows
+}
 
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(rows); err != nil {
-		return fmt.Errorf("encode json export: %w", err)
+func (s *Sheet) exportTableStrings() ([]string, [][]string) {
+	cols := s.VisibleColumnIndices()
+	header := make([]string, len(cols))
+	rows := make([][]string, 0, len(s.Rows))
+	for i, colIndex := range cols {
+		header[i] = s.Columns[colIndex].Name
 	}
-	return nil
+	for _, row := range s.Rows {
+		rows = append(rows, visibleRowValues(row, cols))
+	}
+	return header, rows
+}
+
+func (s *Sheet) exportTableTyped() ([]any, [][]any) {
+	cols := s.VisibleColumnIndices()
+	header := make([]any, len(cols))
+	rows := make([][]any, 0, len(s.Rows))
+	for i, colIndex := range cols {
+		header[i] = s.Columns[colIndex].Name
+	}
+	for _, row := range s.Rows {
+		record := make([]any, len(cols))
+		for i, colIndex := range cols {
+			record[i] = typedValue(s.Columns[colIndex].EffectiveKind(), cellAt(row, colIndex))
+		}
+		rows = append(rows, record)
+	}
+	return header, rows
 }
 
 func typedValue(kind ValueKind, value string) any {

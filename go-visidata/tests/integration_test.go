@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/xuri/excelize/v2"
 )
 
 func TestVDGOPreviewsFixture(t *testing.T) {
@@ -216,5 +218,107 @@ func TestVDGOSavesExportFile(t *testing.T) {
 	}
 	if _, ok := rows[0]["Customer"]; !ok {
 		t.Fatalf("export missing Customer field: %#v", rows[0])
+	}
+}
+
+func TestVDGOPreviewsXLSXFixture(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "people.xlsx")
+
+	workbook := excelize.NewFile()
+	defer workbook.Close()
+	sheetName := workbook.GetSheetName(0)
+	if err := workbook.SetCellValue(sheetName, "A1", "id"); err != nil {
+		t.Fatalf("SetCellValue returned error: %v", err)
+	}
+	if err := workbook.SetCellValue(sheetName, "B1", "name"); err != nil {
+		t.Fatalf("SetCellValue returned error: %v", err)
+	}
+	if err := workbook.SetCellValue(sheetName, "A2", 1); err != nil {
+		t.Fatalf("SetCellValue returned error: %v", err)
+	}
+	if err := workbook.SetCellValue(sheetName, "B2", "Alice"); err != nil {
+		t.Fatalf("SetCellValue returned error: %v", err)
+	}
+	if err := workbook.SaveAs(path); err != nil {
+		t.Fatalf("SaveAs returned error: %v", err)
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/vdgo", "-n", "2", path)
+	cmd.Dir = ".."
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go run returned error: %v\n%s", err, string(out))
+	}
+
+	output := string(out)
+	for _, want := range []string{
+		"people.xlsx:Sheet1:",
+		"id <int>",
+		"name <string>",
+		"Alice",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestVDGOUsesExplicitConfigForPreviewAndTable(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, ".vdgorc")
+	if err := os.WriteFile(configPath, []byte("preview_rows = 1\ntable = \"withrowid\"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/vdgo", "-config", configPath, "../tests/without_rowid.db")
+	cmd.Dir = ".."
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go run returned error: %v\n%s", err, string(out))
+	}
+
+	output := string(out)
+	for _, want := range []string{
+		"without_rowid.db:withrowid: 2 row(s) x 2 column(s)",
+		"... showing first 1 of 2 row(s)",
+		"id <int>",
+		"datum <string>",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestVDGOFlagOverridesConfig(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, ".vdgorc")
+	if err := os.WriteFile(configPath, []byte("preview_rows = 1\nfiletype = \"fixed\"\nheader = 0\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/vdgo", "-config", configPath, "-n", "2", "-filetype", "jsonl", "../sample_data/benchmark.jsonl")
+	cmd.Dir = ".."
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go run returned error: %v\n%s", err, string(out))
+	}
+
+	output := string(out)
+	for _, want := range []string{
+		"benchmark.jsonl:",
+		"... showing first 2 of 51 row(s)",
+		"Customer <string>",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "  1") {
+		t.Fatalf("config filetype/header should not override explicit flags:\n%s", output)
 	}
 }

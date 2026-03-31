@@ -7,6 +7,7 @@ type sheetSnapshot struct {
 	MetaCols    []int
 	MetaRows    []int
 	MetaTargets []*Sheet
+	Graph       *GraphSpec
 	CursorRow   int
 	CursorCol   int
 	Selected    []bool
@@ -81,6 +82,7 @@ func (s *Sheet) snapshot() sheetSnapshot {
 		MetaCols:    metaCols,
 		MetaRows:    metaRows,
 		MetaTargets: metaTargets,
+		Graph:       cloneGraphSpec(s.Graph),
 		CursorRow:   s.CursorRow,
 		CursorCol:   s.CursorCol,
 		Selected:    selected,
@@ -103,6 +105,7 @@ func (s *Sheet) restoreSnapshot(snapshot sheetSnapshot) {
 	s.MetaCols = append([]int(nil), snapshot.MetaCols...)
 	s.MetaRows = append([]int(nil), snapshot.MetaRows...)
 	s.MetaTargets = append([]*Sheet(nil), snapshot.MetaTargets...)
+	s.Graph = cloneGraphSpec(snapshot.Graph)
 	s.CursorRow = snapshot.CursorRow
 	s.CursorCol = snapshot.CursorCol
 	s.Selected = append([]bool(nil), snapshot.Selected...)
@@ -117,4 +120,13 @@ func (s *Sheet) restoreSnapshot(snapshot sheetSnapshot) {
 	s.rowIDs = append([]int(nil), snapshot.RowIDs...)
 	s.nextRowID = snapshot.NextRowID
 	s.clampCursor()
+}
+
+func cloneGraphSpec(spec *GraphSpec) *GraphSpec {
+	if spec == nil {
+		return nil
+	}
+	clone := *spec
+	clone.Points = append([]GraphPoint(nil), spec.Points...)
+	return &clone
 }

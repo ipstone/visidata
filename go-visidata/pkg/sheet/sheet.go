@@ -71,6 +71,28 @@ type Clipboard struct {
 	Count   int
 }
 
+type GraphKind string
+
+const (
+	GraphBar     GraphKind = "bar"
+	GraphLine    GraphKind = "line"
+	GraphScatter GraphKind = "scatter"
+)
+
+type GraphPoint struct {
+	Label string
+	X     float64
+	Y     float64
+}
+
+type GraphSpec struct {
+	Kind   GraphKind
+	Title  string
+	XLabel string
+	YLabel string
+	Points []GraphPoint
+}
+
 type Sheet struct {
 	Name        string
 	Source      string
@@ -87,6 +109,7 @@ type Sheet struct {
 	SearchState SearchState
 	Clipboard   Clipboard
 	Status      string
+	Graph       *GraphSpec
 	rowIDs      []int
 	nextRowID   int
 	undoStack   []sheetUndoEntry
@@ -150,6 +173,9 @@ func (s *Sheet) InferColumnKinds() {
 }
 
 func (s *Sheet) Summary() string {
+	if s.Graph != nil {
+		return fmt.Sprintf("%s: %d point(s) [%s]", s.Name, len(s.Rows), s.Graph.Kind)
+	}
 	if hidden := s.HiddenColumnCount(); hidden > 0 {
 		return fmt.Sprintf("%s: %d row(s) x %d/%d column(s)", s.Name, len(s.Rows), len(s.VisibleColumnIndices()), len(s.Columns))
 	}
