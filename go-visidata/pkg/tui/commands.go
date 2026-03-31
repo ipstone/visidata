@@ -10,6 +10,7 @@ var commandCatalog = []commandInfo{
 	{Keys: "q", Name: "quit", Help: "quit or close the current derived sheet"},
 	{Keys: "/", Name: "search", Help: "search for a case-insensitive substring"},
 	{Keys: "[ , ]", Name: "sort", Help: "sort the current column ascending or descending"},
+	{Keys: "&", Name: "join", Help: "join with the previous sheet in the stack using the current column"},
 	{Keys: "f", Name: "freeze", Help: "open a frozen snapshot of the current sheet"},
 	{Keys: "D", Name: "dedupe", Help: "open a deduplicated view using the current column"},
 	{Keys: "F", Name: "frequency", Help: "open a frequency sheet for the current column"},

@@ -37,6 +37,7 @@ printf '{"name":"Alice","age":30}\n{"name":"Bob","age":40}\n' | go run ./cmd/vdg
 - `Home`/`g`: first row
 - `End`/`G`: last row
 - `[` / `]`: sort ascending / descending on the current column
+- `&`: join with the previous sheet in the stack using the current column
 - `f`: open a frozen snapshot of the current sheet
 - `D`: open a deduplicated view using the current column
 - `F`: open a frequency table for the current column

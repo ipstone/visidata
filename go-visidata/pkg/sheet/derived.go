@@ -149,6 +149,80 @@ func (s *Sheet) PivotSheet(columnIndex int) (*Sheet, error) {
 	return sh, nil
 }
 
+func (s *Sheet) JoinSheet(other *Sheet, leftColumnIndex, rightColumnIndex int) (*Sheet, error) {
+	if other == nil {
+		return nil, fmt.Errorf("join requires another sheet")
+	}
+	if leftColumnIndex < 0 || leftColumnIndex >= len(s.Columns) {
+		return nil, fmt.Errorf("column %d out of range", leftColumnIndex)
+	}
+	if rightColumnIndex < 0 || rightColumnIndex >= len(other.Columns) {
+		return nil, fmt.Errorf("column %d out of range", rightColumnIndex)
+	}
+
+	leftVisible := s.VisibleColumnIndices()
+	rightVisible := other.VisibleColumnIndices()
+	rightNames := make(map[string]struct{}, len(rightVisible))
+	for _, columnIndex := range rightVisible {
+		rightNames[other.Columns[columnIndex].Name] = struct{}{}
+	}
+
+	headers := make([]string, 0, len(leftVisible)+len(rightVisible))
+	leftKinds := make([]ValueKind, 0, len(leftVisible))
+	rightKinds := make([]ValueKind, 0, len(rightVisible))
+	for _, columnIndex := range leftVisible {
+		name := s.Columns[columnIndex].Name
+		if _, exists := rightNames[name]; exists {
+			name = "left." + name
+		}
+		headers = append(headers, name)
+		leftKinds = append(leftKinds, s.Columns[columnIndex].EffectiveKind())
+	}
+	leftNames := make(map[string]struct{}, len(leftVisible))
+	for _, columnIndex := range leftVisible {
+		leftNames[s.Columns[columnIndex].Name] = struct{}{}
+	}
+	for _, columnIndex := range rightVisible {
+		name := other.Columns[columnIndex].Name
+		if _, exists := leftNames[name]; exists {
+			name = "right." + name
+		}
+		headers = append(headers, name)
+		rightKinds = append(rightKinds, other.Columns[columnIndex].EffectiveKind())
+	}
+
+	index := make(map[string][]Row)
+	for _, row := range other.Rows {
+		key := cellAt(row, rightColumnIndex)
+		index[key] = append(index[key], row)
+	}
+
+	joinName := fmt.Sprintf("join:%s+%s:%s=%s", s.Name, other.Name, s.Columns[leftColumnIndex].Name, other.Columns[rightColumnIndex].Name)
+	sh := New(joinName, s.Source, headers)
+	for i, kind := range leftKinds {
+		sh.Columns[i].Kind = kind
+	}
+	for i, kind := range rightKinds {
+		sh.Columns[len(leftKinds)+i].Kind = kind
+	}
+
+	blankRight := make([]string, len(rightVisible))
+	for _, leftRow := range s.Rows {
+		leftValues := visibleRowValues(leftRow, leftVisible)
+		matches := index[cellAt(leftRow, leftColumnIndex)]
+		if len(matches) == 0 {
+			sh.AddRawRow(append(append([]string{}, leftValues...), blankRight...))
+			continue
+		}
+		for _, rightRow := range matches {
+			joined := append(append([]string{}, leftValues...), visibleRowValues(rightRow, rightVisible)...)
+			sh.AddRawRow(joined)
+		}
+	}
+
+	return sh, nil
+}
+
 func (s *Sheet) FrequencySheet(columnIndex int) (*Sheet, error) {
 	if columnIndex < 0 || columnIndex >= len(s.Columns) {
 		return nil, fmt.Errorf("column %d out of range", columnIndex)

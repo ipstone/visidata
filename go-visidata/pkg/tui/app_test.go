@@ -223,6 +223,7 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 		"search \"o\"",
 		"sel 1",
 		"cell \"20\"",
+		"& join",
 		"f freeze",
 		"D dedupe",
 		"W pivot",
@@ -301,6 +302,13 @@ func TestHandleKeyOpensDerivedSheetsAndPopsBack(t *testing.T) {
 
 	app := New(sh, nil)
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'f', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '&', tcell.ModNone))
+	if got := app.Sheet.Name; got != "join:freeze:people.csv+people.csv:city=city" {
+		t.Fatalf("join sheet name = %q, want join:freeze:people.csv+people.csv:city=city", got)
+	}
+	if quit := app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)); quit {
+		t.Fatal("q should pop join sheet before quitting")
+	}
 	if got := app.Sheet.Name; got != "freeze:people.csv" {
 		t.Fatalf("freeze sheet name = %q, want freeze:people.csv", got)
 	}
@@ -479,6 +487,7 @@ func TestDrawRendersDeleteAndSaveStatus(t *testing.T) {
 	for _, want := range []string{
 		"deleted rows 1",
 		"deleted 1 row(s)",
+		"& join",
 		"f freeze",
 		"D dedupe",
 		"d delete",
@@ -551,6 +560,7 @@ func TestDrawRendersMetaStackStatus(t *testing.T) {
 	for _, want := range []string{
 		"columns:people.csv",
 		"stack 2",
+		"& join",
 		"f freeze",
 		"W pivot",
 		"V sheets",

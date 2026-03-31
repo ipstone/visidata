@@ -92,6 +92,48 @@ func TestPivotSheetGroupsByCurrentColumnAndSumsNumericColumns(t *testing.T) {
 	}
 }
 
+func TestJoinSheetMatchesRowsAndPrefixesDuplicateHeaders(t *testing.T) {
+	left := New("left.csv", "/tmp/left.csv", []string{"id", "name", "score"})
+	left.AddRow([]string{"1", "Alice", "10"})
+	left.AddRow([]string{"2", "Bob", "20"})
+	left.InferColumnKinds()
+
+	right := New("right.csv", "/tmp/right.csv", []string{"id", "name", "city"})
+	right.AddRow([]string{"1", "Alicia", "Tokyo"})
+	right.AddRow([]string{"1", "Ally", "Kyoto"})
+	right.AddRow([]string{"3", "Carol", "Osaka"})
+	right.InferColumnKinds()
+
+	joined, err := left.JoinSheet(right, 0, 0)
+	if err != nil {
+		t.Fatalf("JoinSheet returned error: %v", err)
+	}
+	if got := joined.Name; got != "join:left.csv+right.csv:id=id" {
+		t.Fatalf("join sheet name = %q, want %q", got, "join:left.csv+right.csv:id=id")
+	}
+	if len(joined.Rows) != 3 {
+		t.Fatalf("len(rows) = %d, want 3", len(joined.Rows))
+	}
+	if got := joined.Columns[0].Name; got != "left.id" {
+		t.Fatalf("first header = %q, want left.id", got)
+	}
+	if got := joined.Columns[3].Name; got != "right.id" {
+		t.Fatalf("fourth header = %q, want right.id", got)
+	}
+	if got := joined.Cell(0, 5); got != "Tokyo" {
+		t.Fatalf("first joined city = %q, want Tokyo", got)
+	}
+	if got := joined.Cell(1, 5); got != "Kyoto" {
+		t.Fatalf("second joined city = %q, want Kyoto", got)
+	}
+	if got := joined.Cell(2, 5); got != "" {
+		t.Fatalf("unmatched joined city = %q, want empty", got)
+	}
+	if got := joined.Columns[2].Kind; got != KindInt {
+		t.Fatalf("left score kind = %s, want int", got)
+	}
+}
+
 func TestFrequencySheet(t *testing.T) {
 	sh := New("people.csv", "/tmp/people.csv", []string{"city", "age"})
 	sh.AddRow([]string{"Tokyo", "30"})

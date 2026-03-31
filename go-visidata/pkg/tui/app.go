@@ -125,6 +125,8 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 			a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortAsc)
 		case ']':
 			a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortDesc)
+		case '&':
+			a.openJoinSheet()
 		case 'f':
 			a.pushSheet(a.Sheet.FreezeSheet())
 			a.Sheet.Status = fmt.Sprintf("freeze %s", a.Sheet.Name)
@@ -263,6 +265,39 @@ func (a *App) openFrequencySheet() {
 	}
 	a.pushSheet(sh)
 	a.Sheet.Status = fmt.Sprintf("frequency %s", a.Sheet.Name)
+}
+
+func (a *App) openJoinSheet() {
+	if len(a.stack) < 2 {
+		a.Sheet.Status = "join needs another sheet on the stack"
+		return
+	}
+	other := a.stack[len(a.stack)-2]
+	leftColumnIndex := a.Sheet.CursorCol
+	rightColumnIndex := matchingColumnIndex(other, a.Sheet.Columns[leftColumnIndex].Name)
+	if rightColumnIndex < 0 {
+		rightColumnIndex = other.CursorCol
+	}
+	if rightColumnIndex < 0 || rightColumnIndex >= len(other.Columns) {
+		a.Sheet.Status = "join needs a valid column in the previous sheet"
+		return
+	}
+	sh, err := a.Sheet.JoinSheet(other, leftColumnIndex, rightColumnIndex)
+	if err != nil {
+		a.Sheet.Status = fmt.Sprintf("join failed: %v", err)
+		return
+	}
+	a.pushSheet(sh)
+	a.Sheet.Status = fmt.Sprintf("join %s", a.Sheet.Name)
+}
+
+func matchingColumnIndex(sh *sheet.Sheet, name string) int {
+	for i, col := range sh.Columns {
+		if col.Name == name {
+			return i
+		}
+	}
+	return -1
 }
 
 func (a *App) openPivotSheet() {
