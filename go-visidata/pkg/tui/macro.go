@@ -4,14 +4,14 @@ func (a *App) toggleMacroRecording() {
 	if a.macroRecording {
 		a.macroRecording = false
 		a.Sheet.Status = "stopped macro recording"
-		a.recordCommand("z", "macro-record", a.Sheet.Status)
+		a.recordCommand("zz", "macro-record", a.Sheet.Status)
 		return
 	}
 
 	a.macro = nil
 	a.macroRecording = true
 	a.Sheet.Status = "recording macro"
-	a.recordCommand("z", "macro-record", a.Sheet.Status)
+	a.recordCommand("zz", "macro-record", a.Sheet.Status)
 }
 
 func (a *App) replayMacro() bool {
@@ -37,7 +37,7 @@ func (a *App) replayMacro() bool {
 	}
 
 	a.Sheet.Status = "replayed macro"
-	a.recordCommand("Z", "macro-play", a.Sheet.Status)
+	a.recordCommand("zZ", "macro-play", a.Sheet.Status)
 	return false
 }
 
@@ -66,6 +66,14 @@ func macroInputMode(name string) (inputMode, bool) {
 	switch name {
 	case "search":
 		return inputModeSearch, true
+	case "goto-col-regex":
+		return inputModeGotoColRegex, true
+	case "goto-row-regex":
+		return inputModeGotoRowRegex, true
+	case "goto-col-number":
+		return inputModeGotoColNumber, true
+	case "goto-row-number":
+		return inputModeGotoRowNumber, true
 	case "edit-cell":
 		return inputModeEditCell, true
 	case "expr-col":

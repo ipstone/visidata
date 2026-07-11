@@ -15,6 +15,10 @@ const (
 	inputModeCommandPalette inputMode = "command-palette"
 	inputModeMenu           inputMode = "menu"
 	inputModeSearch         inputMode = "search"
+	inputModeGotoColRegex   inputMode = "goto-col-regex"
+	inputModeGotoRowRegex   inputMode = "goto-row-regex"
+	inputModeGotoColNumber  inputMode = "goto-col-number"
+	inputModeGotoRowNumber  inputMode = "goto-row-number"
 	inputModeEditCell       inputMode = "edit-cell"
 	inputModeExpr           inputMode = "expr"
 	inputModeRename         inputMode = "rename"
@@ -37,6 +41,7 @@ type App struct {
 	macroPlaying   bool
 	mode           inputMode
 	inputValue     []rune
+	pendingPrefix  rune
 	paletteIndex   int
 	menuIndex      int
 	menuItemIndex  int
@@ -120,6 +125,9 @@ func (a *App) Run() error {
 func (a *App) HandleKey(ev *tcell.EventKey) bool {
 	if a.mode != inputModeNone {
 		return a.handleInputKey(ev)
+	}
+	if a.pendingPrefix != 0 {
+		return a.handlePendingPrefix(ev)
 	}
 	if a.sidebarVisible {
 		return a.handleSidebarKey(ev)
@@ -209,9 +217,11 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 		case 'u':
 			return a.executeCommand("clear-selection")
 		case 'c':
-			return a.executeCommand("copy-cell")
+			return a.executeCommand("goto-col-regex")
 		case 'C':
 			return a.executeCommand("copy-rows")
+		case 'r':
+			return a.executeCommand("goto-row-regex")
 		case 'd':
 			return a.executeCommand("delete")
 		case 'S':
@@ -265,13 +275,43 @@ func (a *App) HandleKey(ev *tcell.EventKey) bool {
 		case '\\':
 			return a.executeCommand("regex-unselect")
 		case 'z':
-			return a.executeCommand("macro-record")
-		case 'Z':
-			return a.executeCommand("macro-play")
+			a.pendingPrefix = 'z'
+			a.Sheet.Status = "z prefix"
+			return false
+		case 'y':
+			return a.executeCommand("copy-cell")
 		}
 	}
 
 	a.ensureVisible(a.size())
+	return false
+}
+
+func (a *App) handlePendingPrefix(ev *tcell.EventKey) bool {
+	prefix := a.pendingPrefix
+	a.pendingPrefix = 0
+
+	switch ev.Key() {
+	case tcell.KeyEscape:
+		a.Sheet.Status = "cancelled prefix"
+		return false
+	case tcell.KeyRune:
+		switch prefix {
+		case 'z':
+			switch ev.Rune() {
+			case 'c':
+				return a.executeCommand("goto-col-number")
+			case 'r':
+				return a.executeCommand("goto-row-number")
+			case 'z':
+				return a.executeCommand("macro-record")
+			case 'Z':
+				return a.executeCommand("macro-play")
+			}
+		}
+	}
+
+	a.Sheet.Status = fmt.Sprintf("unknown %c command", prefix)
 	return false
 }
 
@@ -742,6 +782,14 @@ func (a *App) executeCommand(name string) bool {
 		a.activateCurrentRow()
 	case "search":
 		a.beginInput(inputModeSearch, a.Sheet.SearchState.Query)
+	case "goto-col-regex":
+		a.beginInput(inputModeGotoColRegex, "")
+	case "goto-row-regex":
+		a.beginInput(inputModeGotoRowRegex, "")
+	case "goto-col-number":
+		a.beginInput(inputModeGotoColNumber, "")
+	case "goto-row-number":
+		a.beginInput(inputModeGotoRowNumber, "")
 	case "sort-asc":
 		a.Sheet.ToggleSort(a.Sheet.CursorCol, sheet.SortAsc)
 		a.recordCommand("[", "sort-asc", "sorted ascending")
@@ -825,7 +873,7 @@ func (a *App) executeCommand(name string) bool {
 	case "copy-cell":
 		a.Sheet.CopyCell(a.Sheet.CursorRow, a.Sheet.CursorCol)
 		a.Sheet.Status = "copied current cell"
-		a.recordCommand("c", "copy-cell", a.Sheet.Status)
+		a.recordCommand("y", "copy-cell", a.Sheet.Status)
 	case "copy-rows":
 		a.Sheet.CopySelectedRowsOrCurrent()
 		a.Sheet.Status = "copied row data"
@@ -942,6 +990,7 @@ func (a *App) handleInputKey(ev *tcell.EventKey) bool {
 		}
 		a.mode = inputModeNone
 		a.inputValue = nil
+		a.pendingPrefix = 0
 	case tcell.KeyEnter:
 		a.commitInput()
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
@@ -982,6 +1031,7 @@ func (a *App) saveSuggested() {
 
 func (a *App) beginInput(mode inputMode, initial string) {
 	a.mode = mode
+	a.pendingPrefix = 0
 	a.inputValue = []rune(initial)
 	a.paletteIndex = 0
 	a.menuIndex = 0
@@ -999,6 +1049,42 @@ func (a *App) commitInput() {
 		a.Sheet.Search(value)
 		a.recordCommand("/", "search", fmt.Sprintf("search %q", value))
 		a.captureMacro("search", value)
+	case inputModeGotoColRegex:
+		colIndex, err := a.Sheet.GotoColumnRegex(value)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("column search failed: %v", err)
+			return
+		}
+		a.Sheet.Status = fmt.Sprintf("column %d %s", colIndex, a.Sheet.Columns[colIndex].Name)
+		a.recordCommand("c", "goto-col-regex", a.Sheet.Status)
+		a.captureMacro("goto-col-regex", value)
+	case inputModeGotoRowRegex:
+		rowIndex, err := a.Sheet.GotoNextRowRegex(value)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("row search failed: %v", err)
+			return
+		}
+		a.Sheet.Status = fmt.Sprintf("row %d matched", rowIndex)
+		a.recordCommand("r", "goto-row-regex", a.Sheet.Status)
+		a.captureMacro("goto-row-regex", value)
+	case inputModeGotoColNumber:
+		colIndex, err := a.Sheet.GotoColumnNumber(value)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("goto column failed: %v", err)
+			return
+		}
+		a.Sheet.Status = fmt.Sprintf("column %d %s", colIndex, a.Sheet.Columns[colIndex].Name)
+		a.recordCommand("zc", "goto-col-number", a.Sheet.Status)
+		a.captureMacro("goto-col-number", value)
+	case inputModeGotoRowNumber:
+		rowIndex, err := a.Sheet.GotoRowNumber(value)
+		if err != nil {
+			a.Sheet.Status = fmt.Sprintf("goto row failed: %v", err)
+			return
+		}
+		a.Sheet.Status = fmt.Sprintf("row %d", rowIndex)
+		a.recordCommand("zr", "goto-row-number", a.Sheet.Status)
+		a.captureMacro("goto-row-number", value)
 	case inputModeEditCell:
 		if err := a.Sheet.SetCell(a.Sheet.CursorRow, a.Sheet.CursorCol, value); err != nil {
 			a.Sheet.Status = fmt.Sprintf("edit failed: %v", err)

@@ -36,6 +36,10 @@ var menuCatalog = []menuGroup{
 		Label: "Data",
 		Items: []menuItem{
 			{Label: "Search", Command: "search"},
+			{Label: "Goto Column Regex", Command: "goto-col-regex"},
+			{Label: "Goto Row Regex", Command: "goto-row-regex"},
+			{Label: "Goto Column Number", Command: "goto-col-number"},
+			{Label: "Goto Row Number", Command: "goto-row-number"},
 			{Label: "Expression Column", Command: "expr-col"},
 			{Label: "Sort Asc", Command: "sort-asc"},
 			{Label: "Sort Desc", Command: "sort-desc"},

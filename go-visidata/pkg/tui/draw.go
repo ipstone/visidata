@@ -272,6 +272,9 @@ func (a *App) drawText(x, y, width int, text string, style tcell.Style) int {
 }
 
 func (a *App) statusLine() string {
+	if a.pendingPrefix != 0 {
+		return fmt.Sprintf("%c: ", a.pendingPrefix)
+	}
 	if a.mode != inputModeNone {
 		return fmt.Sprintf("%s: %s", a.inputPrompt(), string(a.inputValue))
 	}
@@ -450,6 +453,14 @@ func (a *App) inputPrompt() string {
 	switch a.mode {
 	case inputModeSearch:
 		return "Search"
+	case inputModeGotoColRegex:
+		return "Column regex"
+	case inputModeGotoRowRegex:
+		return "Row regex"
+	case inputModeGotoColNumber:
+		return "Column number"
+	case inputModeGotoRowNumber:
+		return "Row number"
 	case inputModeCommandPalette:
 		return "Command"
 	case inputModeMenu:

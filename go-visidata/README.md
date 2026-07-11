@@ -88,7 +88,10 @@ make go-build CGO_ENABLED=1
 - `Tab`: toggle the sheet-stack sidebar; use arrow keys and `Enter` to switch sheets
 - `:` or `Ctrl+P`: open the command palette with fuzzy search
 - `;` or `F10`: open the menu bar and navigate it with arrows and `Enter`
-- `z`: start or stop recording a macro, `Z`: replay the last recorded macro
+- `c`: search visible column names by regex and jump to the next matching column
+- `r`: jump to the next row whose visible row key matches a regex
+- `zc` / `zr`: jump to a 0-based visible column number or row number
+- `zz`: start or stop recording a macro, `zZ`: replay the last recorded macro
 - mouse click: move the cursor to a cell
 - mouse wheel: scroll rows
 - drag with button 1: select a row range
@@ -98,7 +101,7 @@ make go-build CGO_ENABLED=1
 - `/`: search for a case-insensitive substring, `n` / `N`: next / previous match
 - `s`: toggle current row selection, `t`: select all rows, `u`: clear selection
 - `|`: regex-select rows matching the current column, `\`: regex-unselect matching rows
-- `c`: copy the current cell to the internal clipboard
+- `y`: copy the current cell to the internal clipboard
 - `C`: copy selected rows (or the current row) to the internal clipboard
 - `d`: delete selected rows (or the current row) and copy the deleted data to the clipboard
 - `S` / `Ctrl+S`: save the current sheet to a suggested export path

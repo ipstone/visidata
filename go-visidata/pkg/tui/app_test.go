@@ -121,9 +121,9 @@ func TestHandleKeySortSearchAndSelection(t *testing.T) {
 		t.Fatalf("SelectedCount = %d, want 1", got)
 	}
 
-	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'c', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'y', tcell.ModNone))
 	if got := sh.Clipboard.Content; got != "10" {
-		t.Fatalf("clipboard after c = %q, want %q", got, "10")
+		t.Fatalf("clipboard after y = %q, want %q", got, "10")
 	}
 
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'C', tcell.ModNone))
@@ -153,6 +153,50 @@ func TestHandleKeySortSearchAndSelection(t *testing.T) {
 	}
 	if got := sh.Clipboard.Kind; got != "deleted rows" {
 		t.Fatalf("clipboard kind after delete = %q, want deleted rows", got)
+	}
+}
+
+func TestHandleKeyGotoColumnAndRowCommands(t *testing.T) {
+	sh := sheet.New("people.csv", "/tmp/people.csv", []string{"name", "age", "city"})
+	sh.AddRow([]string{"Alice", "30", "Tokyo"})
+	sh.AddRow([]string{"Bob", "20", "Osaka"})
+	sh.AddRow([]string{"Carol", "10", "Kyoto"})
+	sh.InferColumnKinds()
+
+	app := New(sh, nil)
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'c', tcell.ModNone))
+	for _, r := range "city" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.CursorCol; got != 2 {
+		t.Fatalf("cursor col after c regex = %d, want 2", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'r', tcell.ModNone))
+	for _, r := range "Osaka" {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.CursorRow; got != 1 {
+		t.Fatalf("cursor row after r regex = %d, want 1", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'c', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '0', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.CursorCol; got != 0 {
+		t.Fatalf("cursor col after zc = %d, want 0", got)
+	}
+
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'r', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '2', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if got := sh.CursorRow; got != 2 {
+		t.Fatalf("cursor row after zr = %d, want 2", got)
 	}
 }
 
@@ -493,9 +537,9 @@ func TestMenuExecutesSelectedCommand(t *testing.T) {
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, ';', tcell.ModNone))
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, tcell.ModNone))
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, tcell.ModNone))
-	app.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone))
-	app.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone))
-	app.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone))
+	for i := 0; i < 7; i++ {
+		app.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone))
+	}
 	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
 	if got := sh.Cell(0, 0); got != "Bob" {
 		t.Fatalf("first row after menu sort desc = %q, want Bob", got)
@@ -592,13 +636,16 @@ func TestMacroReplayReappliesRecordedCommand(t *testing.T) {
 
 	app := New(sh, nil)
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '[', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'U', tcell.ModNone))
 	if got := sh.Cell(0, 0); got != "Alice" {
 		t.Fatalf("first row after undo = %q, want Alice", got)
 	}
 
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'Z', tcell.ModNone))
 	if got := sh.Cell(0, 0); got != "Bob" {
 		t.Fatalf("first row after macro replay = %q, want Bob", got)
@@ -613,14 +660,17 @@ func TestMacroReplayPreservesInputCommands(t *testing.T) {
 
 	app := New(sh, nil)
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, '/', tcell.ModNone))
 	for _, r := range "osaka" {
 		app.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
 	}
 	app.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
 
 	sh.ClearSearch()
+	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'z', tcell.ModNone))
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'Z', tcell.ModNone))
 	if got := sh.SearchState.Query; got != "osaka" {
 		t.Fatalf("search query after macro replay = %q, want osaka", got)
@@ -668,7 +718,7 @@ func TestDrawRendersSortSearchAndSelectionStatus(t *testing.T) {
 		"P cmdlog",
 		"R redo",
 		"U undo",
-		"c / C copy",
+		"y / C copy",
 		"e edit-cell",
 		"d delete",
 		"S save",
@@ -1081,13 +1131,13 @@ func TestDrawRendersMetaStackStatus(t *testing.T) {
 		t.Fatalf("Init returned error: %v", err)
 	}
 	defer screen.Fini()
-	screen.SetSize(320, 8)
+	screen.SetSize(560, 8)
 
 	app := New(sh, screen)
 	app.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'M', tcell.ModNone))
 	app.Draw()
 
-	lines := snapshot(screen, 320, 8)
+	lines := snapshot(screen, 560, 8)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"columns:people.csv",
